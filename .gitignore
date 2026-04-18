@@ -28,3 +28,7 @@ __pycache__/
 
 # Temporary files
 *.log
+
+# Implementation plans
+implementation_plans/
+implemention_plans/

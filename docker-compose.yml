@@ -1,14 +1,33 @@
 version: '3.8'
 
+# Hermes-only compose file.
+# For running BOTH Hermes + OpenAlgo together, use the root docker-compose.yml:
+#   cd /Users/prasanna/.gemini/antigravity/scratch/
+#   make start
+#
+# This file is for running Hermes in isolation (e.g., CI, local dev without OpenAlgo).
+
+networks:
+  hermes_net:
+    external: true   # Expects hermes_net to already exist (created by root compose)
+    name: hermes_net
+
 services:
   hermes_ui:
     build: .
+    container_name: hermes-ui
     ports:
       - "8501:8501"
     volumes:
       - .:/app
-      # Map OpenAlgo's directory so Hermes Data Agent can access OpenAlgo's DuckDB
-      - ../openalgo:/openalgo
     env_file:
       - .env
-    command: streamlit run app.py
+    environment:
+      - TZ=Asia/Kolkata
+      # When running with the root docker-compose, OpenAlgo is reachable at this hostname.
+      # When running in isolation (hermes-only), set OPENALGO_HOST=http://127.0.0.1:5000 in .env
+      - OPENALGO_HOST=${OPENALGO_HOST:-http://openalgo:5000}
+    networks:
+      - hermes_net
+    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+    restart: unless-stopped

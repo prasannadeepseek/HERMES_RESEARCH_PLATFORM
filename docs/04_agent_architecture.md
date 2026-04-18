@@ -44,6 +44,7 @@ The orchestrator that ties all modules together.
 | `_sanitize_code(code)` | Static analysis to block dangerous patterns (`import os`, `eval()`, `exec()`, etc.) before exporting. |
 | `_safe_session_id(session_id)` | Strips path-unsafe characters from session IDs to prevent directory traversal. |
 | `_export_strategy(code)` | Wraps validated strategy code in OpenAlgo SDK boilerplate and writes to `hermes_strategies/{session_id}/strategy.py`. |
+| `export_to_openalgo(code, deploy)` | Exports locally AND optionally pushes the strategy to the live OpenAlgo container via REST API. |
 
 > [!WARNING]
 > The `_sandbox_execute()` method uses Python's `exec()` with a restricted `__builtins__` dictionary. While this prevents easy escapes, it is **not a full sandbox**. Do not run Hermes with access to production systems without additional container-level isolation.

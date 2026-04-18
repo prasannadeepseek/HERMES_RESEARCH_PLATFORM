@@ -25,19 +25,26 @@ Locate `temp_repos/swing-trader-pro/swing-trader-pro/scripts/morning_setup.py`.
 Create a new file `hermes_strategies/intraday/morning_breakout.py`.
 
 **Step 3: Adapt the Code**
-Rewrite the logic to use the `OpenAlgoDataConnector` instead of the old `nse_fetcher.py`.
+Rewrite the logic to use the `OpenAlgoClient` (the REST client) instead of the old standalone fetchers.
 
 ```python
 # hermes_strategies/intraday/morning_breakout.py
-from data_pipeline.openalgo_connector import OpenAlgoDataConnector
+from data_pipeline.openalgo_connector import OpenAlgoClient
 
 class MorningBreakoutStrategy:
     def __init__(self):
-        self.data_connector = OpenAlgoDataConnector()
+        # Hermes automatically configures the client from your .env
+        self.client = OpenAlgoClient()
         
     def generate_signals(self, symbol):
-        # 1. Fetch data
-        df = self.data_connector.get_historical_data(symbol, ...)
+        # 1. Fetch data via REST API (no file mounts needed)
+        df = self.client.get_historical_data(
+            symbol=symbol, 
+            exchange="NSE", 
+            interval="15minute",
+            start_date=...,
+            end_date=...
+        )
         
         # 2. Apply your FNO / Intraday logic
         # ...

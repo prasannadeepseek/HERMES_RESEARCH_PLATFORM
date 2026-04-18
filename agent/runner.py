@@ -4,6 +4,7 @@ import time
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from data_pipeline.openalgo_connector import OpenAlgoClient
 
 from agent.llm_router import HermesLLM
 from agent.memory import HermesMemory
@@ -229,3 +230,76 @@ if __name__ == "__main__":
             f.write(boilerplate)
             
         print(f"Strategy exported to {file_path} - Ready for OpenAlgo UI upload!")
+        return file_path
+
+    def export_to_openalgo(self, code: str, deploy: bool = False) -> dict:
+        """
+        Export a validated strategy to the local hermes_strategies/ directory
+        and optionally deploy it live to the OpenAlgo broker gateway.
+
+        Args:
+            code:   The validated strategy Python code (must contain evaluate()).
+            deploy: If True, attempt to push the strategy file to OpenAlgo's
+                    /api/v1/strategies endpoint. If False (default), only write
+                    locally — useful for review before going live.
+
+        Returns:
+            dict with keys:
+                exported_path (str): Local file path of the written strategy.
+                deployed (bool):     Whether the strategy was pushed to OpenAlgo.
+                order_result (dict): Result of the OpenAlgo deploy call, if attempted.
+                errors (list):       Any errors encountered.
+        """
+        result = {"exported_path": None, "deployed": False, "order_result": {}, "errors": []}
+
+        # Step 1: Write to local file
+        try:
+            path = self._export_strategy(code)
+            result["exported_path"] = path
+        except Exception as e:
+            result["errors"].append(f"Local export failed: {e}")
+            return result
+
+        if not deploy:
+            print("ℹ️  Strategy written locally. Set deploy=True to push to OpenAlgo.")
+            return result
+
+        # Step 2: Push to OpenAlgo REST API
+        client = OpenAlgoClient()
+        if not client.ping():
+            result["errors"].append(
+                f"OpenAlgo not reachable at {client.host}. "
+                "Is OpenAlgo running? Check: make status"
+            )
+            return result
+
+        safe_id = self._safe_session_id(self.session_id)
+        try:
+            with open(result["exported_path"], "r") as f:
+                strategy_code = f.read()
+
+            # OpenAlgo strategy deployment endpoint
+            order_result = client._post("/api/v1/strategies", {
+                "strategy_name": safe_id,
+                "strategy_code": strategy_code,
+                "strategy_type": "python",
+            })
+            result["order_result"] = order_result
+
+            if order_result.get("status") == "success":
+                result["deployed"] = True
+                print(f"✅ Strategy '{safe_id}' deployed to OpenAlgo successfully.")
+                self.memory.save_wiki_entry(
+                    f"Deployed: {self.session_id}",
+                    f"Strategy deployed to OpenAlgo at {client.host}. Result: {order_result}"
+                )
+            else:
+                msg = order_result.get("message", "Unknown error from OpenAlgo")
+                result["errors"].append(f"OpenAlgo deploy returned: {msg}")
+                print(f"⚠️  OpenAlgo deploy response: {msg}")
+
+        except Exception as e:
+            result["errors"].append(f"OpenAlgo deploy error: {e}")
+            print(f"⚠️  Error deploying to OpenAlgo: {e}")
+
+        return result

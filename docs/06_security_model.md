@@ -1,6 +1,6 @@
 # Security Model
 
-Hermes executes LLM-generated code at runtime. This document explains the multi-layer security model designed to prevent malicious or hallucinated code from causing damage.
+Hermes executes LLM-generated code at runtime and communicates with a live broker gateway (OpenAlgo). This document explains the multi-layer security model designed to prevent malicious or hallucinated code from causing damage.
 
 ## The Threat Model
 
@@ -92,25 +92,25 @@ This strips everything except alphanumeric characters, underscores, and hyphens,
 
 ---
 
-## Layer 4: Read-Only Database Access
+## Layer 4: Network-Isolated API Communication
 
 **File:** `data_pipeline/openalgo_connector.py`
 
-The OpenAlgo DuckDB is always opened in **read-only mode**:
+Hermes communicates with OpenAlgo exclusively via its documented REST API over the internal `hermes_net` Docker network. There is no shared file system access, no DuckDB file mount, and no direct database connection.
 
-```python
-duckdb.connect(self.db_path, read_only=True)
-```
-
-This means even if the sandbox were fully escaped, the attacker cannot write or corrupt the market data database.
+This means:
+- Hermes cannot corrupt OpenAlgo's internal state.
+- The `OPENALGO_API_KEY` is the only credential Hermes holds — it cannot log in to the broker directly.
+- Even if the LLM generated code that tried to call `requests.post("http://openalgo:5000/api/v1/placeorder")`, it would be blocked by Layer 1 (no `requests` in `safe_globals`) and Layer 2 (`import requests` is an import statement).
+- Exported strategy files that DO have network access use only the `openalgo` SDK with the pre-configured API key from environment variables — they cannot access or exfiltrate the broker session token.
 
 ---
 
-## Layer 5: Non-Root Docker Container
+## Layer 5: Non-Root Docker Containers
 
-**File:** `Dockerfile`
+**File:** `Dockerfile` (Hermes), `openalgo/Dockerfile` (OpenAlgo)
 
-The Streamlit application runs as a non-root user (`appuser`) inside Docker. If a sandbox escape occurs within the container, the attacker cannot write to system directories or escalate privileges.
+Both the Streamlit application and OpenAlgo run as **non-root users** inside Docker. If a sandbox escape occurs within either container, the attacker cannot write to system directories or escalate privileges.
 
 ---
 
@@ -121,8 +121,8 @@ The Streamlit application runs as a non-root user (`appuser`) inside Docker. If 
 | 1 | Restricted `exec()` builtins | Accidental/malicious imports at runtime |
 | 2 | Regex static analysis export gate | Dangerous code reaching production files |
 | 3 | Session ID path sanitization | Directory traversal |
-| 4 | Read-only DB connection | Database corruption |
-| 5 | Non-root Docker user | Container privilege escalation |
+| 4 | REST API only, no shared filesystem | DB corruption, credential theft |
+| 5 | Non-root Docker user (both containers) | Container privilege escalation |
 
 ## Known Limitations & Recommendations
 
@@ -130,4 +130,5 @@ The Streamlit application runs as a non-root user (`appuser`) inside Docker. If 
 > - Layer 1 does not protect against advanced Python introspection-based sandbox escapes.
 > - If you run this platform as a public web service, wrap `_sandbox_execute()` in a subprocess call that runs inside a throwaway Docker container with a resource limit (CPU, memory, network disabled).
 > - Rotate your `OPENALGO_API_KEY` and `OPENROUTER_API_KEY` regularly.
-> - Never commit your `.env` file — it is already in `.gitignore`.
+> - Never commit your `.env` files — both `hermes_research_platform/.env` and `openalgo/.env` are already in their respective `.gitignore` files.
+> - The `openalgo/.env` contains your broker API keys. Treat it with the same care as a password.
