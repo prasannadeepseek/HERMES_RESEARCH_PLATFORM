@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  hermes_ui:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+      # Map OpenAlgo's directory so Hermes Data Agent can access OpenAlgo's DuckDB
+      - ../openalgo:/openalgo
+    env_file:
+      - .env
+    command: streamlit run app.py

@@ -1,0 +1,156 @@
+import os
+import time
+import pandas as pd
+from datetime import datetime
+
+from agent.llm_router import HermesLLM
+from agent.memory import HermesMemory
+from agent.registry import HermesRegistry
+from backtester.engine import HermesBacktester
+
+class HermesRunner:
+    """
+    The Core Agentic Loop for Hermes.
+    Connects the LLM, Context Memory, Backtester, and Iteration Registry.
+    """
+    def __init__(self, session_id: str, df: pd.DataFrame, config: dict):
+        self.session_id = session_id
+        self.df = df
+        self.config = config
+        
+        self.llm = HermesLLM()
+        self.memory = HermesMemory()
+        self.registry = HermesRegistry()
+        self.backtester = HermesBacktester()
+        
+    def execute_research_loop(self, max_iterations=5):
+        """
+        Runs the autonomous strategy generation loop.
+        """
+        print(f"Starting Research Session: {self.session_id}")
+        
+        # 1. Retrieve Context & Skills
+        context = self.memory.retrieve_wiki_context(keywords=["strategy", "lessons", "failures"])
+        skills = self.memory.list_available_skills()
+        
+        previous_code = ""
+        previous_feedback = ""
+        
+        for i in range(1, max_iterations + 1):
+            print(f"--- Iteration {i}/{max_iterations} ---")
+            
+            # 2. Build Prompt
+            prompt = f"Goal: Create a trading strategy meeting these metrics: {self.config}\n"
+            if previous_code:
+                prompt += f"\nPrevious attempt failed. Code:\n{previous_code}\n\nFeedback:\n{previous_feedback}\n"
+                prompt += "Please fix the logic to achieve the target metrics."
+            else:
+                prompt += "Please write the initial `evaluate(df, params)` function."
+                
+            # 3. Generate Code
+            print("Generating code via LLM...")
+            code = self.llm.generate_strategy_code(prompt=prompt, context=context, skills=skills)
+            
+            if not code:
+                print("Failed to generate code.")
+                break
+                
+            # 4. Sandbox Execution (Evaluate)
+            metrics, failures = self._sandbox_execute(code)
+            
+            # 5. Check Goals
+            goals_met, failure_reasons = self.backtester.check_goals(metrics, self.config)
+            if failure_reasons:
+                failures.extend(failure_reasons)
+                
+            # 6. Log Iteration to Registry
+            self.registry.log_iteration(
+                session_id=self.session_id,
+                strategy_name=self.config.get("name", "Unknown Strategy"),
+                iteration_number=i,
+                code_snippet=code,
+                metrics=metrics,
+                failures=failures,
+                goals_met=goals_met
+            )
+            
+            if goals_met:
+                print(f"✅ Success! Strategy meets all goals on iteration {i}.")
+                self._export_strategy(code)
+                self.memory.save_wiki_entry(f"Success: {self.session_id}", f"Achieved goals with {metrics['Total_Return_Pct']:.2f}% ROI. Code pattern saved.")
+                return True
+                
+            print(f"❌ Goals not met. Failures: {failures}")
+            previous_code = code
+            previous_feedback = str(failures)
+            
+        print("❌ Max iterations reached without meeting goals.")
+        self.memory.save_wiki_entry(f"Failure Analysis: {self.session_id}", "Strategy failed to meet goals after max iterations.")
+        return False
+
+    def _sandbox_execute(self, code: str):
+        """
+        Safely executes the LLM generated code against the backtester.
+        """
+        # Note: In production, this MUST run in a sandboxed process/Docker container to prevent arbitrary code execution.
+        local_scope = {}
+        try:
+            # Inject pandas and numpy into the local scope for the strategy to use
+            exec(code, {"pd": pd, "np": np}, local_scope)
+            
+            if "evaluate" not in local_scope:
+                return {}, ["Code is missing the `evaluate(df, params)` function."]
+                
+            # Run the generated evaluate function
+            evaluate_func = local_scope["evaluate"]
+            entries, exits, short_entries, short_exits = evaluate_func(self.df, self.config.get("params", {}))
+            
+            # Run through Backtester
+            metrics, _ = self.backtester.evaluate_signals(self.df, entries, exits, short_entries, short_exits)
+            return metrics, []
+            
+        except Exception as e:
+            return {}, [f"Runtime Error during execution: {str(e)}"]
+
+    def _export_strategy(self, code: str):
+        """
+        Wraps the successful logic into OpenAlgo's SDK format and exports to hermes_strategies/
+        """
+        # Standard OpenAlgo Boilerplate
+        boilerplate = f'''#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: {self.session_id}
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+{code}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+'''
+        export_dir = os.path.join("hermes_strategies", self.session_id)
+        os.makedirs(export_dir, exist_ok=True)
+        
+        file_path = os.path.join(export_dir, "strategy.py")
+        with open(file_path, "w") as f:
+            f.write(boilerplate)
+            
+        print(f"Strategy exported to {file_path} - Ready for OpenAlgo UI upload!")
