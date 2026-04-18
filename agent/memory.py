@@ -23,8 +23,9 @@ class HermesMemory:
         """
         Saves a learning to the markdown vault.
         """
-        # Clean topic string for filename
-        filename = "".join(x for x in topic if x.isalnum() or x in " _-").replace(" ", "_").lower() + ".md"
+        # Clean topic string for filename and truncate to safe length
+        filename = "".join(x for x in topic if x.isalnum() or x in " _-").replace(" ", "_").lower()
+        filename = filename[:200] + ".md"
         filepath = os.path.join(self.wiki_dir, filename)
         
         # Append if exists, else write new

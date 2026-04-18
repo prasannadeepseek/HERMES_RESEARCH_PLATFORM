@@ -3,8 +3,10 @@ import numpy as np
 import sys
 import os
 
-# Ensure the parent directory is in the path to import strategies
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the project root to the path if running this file directly
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from hermes_strategies.trend_momentum import TrendMomentumStrategy
 from hermes_strategies.mean_reversion import MeanReversionStrategy

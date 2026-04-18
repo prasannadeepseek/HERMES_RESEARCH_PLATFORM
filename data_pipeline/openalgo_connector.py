@@ -23,24 +23,27 @@ class OpenAlgoDataConnector:
         """
         Retrieves historical data directly from OpenAlgo's local DuckDB.
         """
+        conn = None
         try:
             conn = self._connect()
             # This is a generic query. The actual schema depends on OpenAlgo's Historify setup.
             # Assuming a generic OHLCV table for now.
-            query = f"""
+            query = """
                 SELECT timestamp, open, high, low, close, volume 
                 FROM market_data 
-                WHERE symbol = '{symbol}' 
-                  AND exchange = '{exchange}'
-                  AND interval = '{interval}'
-                  AND timestamp >= '{start_date.isoformat()}'
-                  AND timestamp <= '{end_date.isoformat()}'
+                WHERE symbol = ? 
+                  AND exchange = ?
+                  AND interval = ?
+                  AND timestamp >= ?
+                  AND timestamp <= ?
                 ORDER BY timestamp ASC
             """
-            df = conn.execute(query).df()
-            conn.close()
+            df = conn.execute(query, [symbol, exchange, interval, start_date.isoformat(), end_date.isoformat()]).df()
             return df
         except Exception as e:
             print(f"Error fetching from OpenAlgo DB: {e}")
             # Fallback could be hitting the OpenAlgo REST API
             return pd.DataFrame()
+        finally:
+            if conn is not None:
+                conn.close()

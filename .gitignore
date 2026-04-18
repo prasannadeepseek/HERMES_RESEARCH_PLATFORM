@@ -21,5 +21,10 @@ __pycache__/
 # OS files
 .DS_Store
 
+# Databases
+*.sqlite
+*.db
+*.duckdb
+
 # Temporary files
 *.log

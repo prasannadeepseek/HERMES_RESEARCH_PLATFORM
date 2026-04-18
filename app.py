@@ -46,15 +46,43 @@ with col2:
             "max_drawdown": max_dd
         }
         
-        # 2. Mock Data for MVP (In reality, fetch from OpenAlgoConnector)
+        # 2. Load Data Based on Selection
         st.write("Loading Historical Data...")
         import pandas as pd
         import numpy as np
-        dates = pd.date_range("2020-01-01", periods=1000, freq="1d")
-        df = pd.DataFrame({
-            "close": np.random.randn(1000).cumsum() + 100,
-            "open": np.random.randn(1000).cumsum() + 100,
-        }, index=dates)
+        from datetime import datetime, timedelta
+        
+        if data_source == "OpenAlgo (DuckDB)":
+            try:
+                from data_pipeline.openalgo_connector import OpenAlgoDataConnector
+                connector = OpenAlgoDataConnector()
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=365)
+                df = connector.get_historical_data(
+                    symbol=symbol, exchange="NSE", interval="1d",
+                    start_date=start_date, end_date=end_date
+                )
+                if df.empty:
+                    st.warning("No data returned from OpenAlgo. Falling back to sandbox data.")
+                    dates = pd.date_range("2020-01-01", periods=1000, freq="1d")
+                    df = pd.DataFrame({
+                        "close": np.random.randn(1000).cumsum() + 100,
+                        "open": np.random.randn(1000).cumsum() + 100,
+                    }, index=dates)
+            except Exception as e:
+                st.warning(f"OpenAlgo connection failed: {e}. Using sandbox data.")
+                dates = pd.date_range("2020-01-01", periods=1000, freq="1d")
+                df = pd.DataFrame({
+                    "close": np.random.randn(1000).cumsum() + 100,
+                    "open": np.random.randn(1000).cumsum() + 100,
+                }, index=dates)
+        else:
+            # Yahoo Finance Sandbox / TrueData CSV fallback
+            dates = pd.date_range("2020-01-01", periods=1000, freq="1d")
+            df = pd.DataFrame({
+                "close": np.random.randn(1000).cumsum() + 100,
+                "open": np.random.randn(1000).cumsum() + 100,
+            }, index=dates)
         
         # 3. Initialize Runner
         from agent.runner import HermesRunner

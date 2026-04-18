@@ -7,6 +7,7 @@ class HermesLLM:
     """
     def __init__(self, provider="openrouter", model_name=None):
         self.provider = provider.lower()
+        self.api_base = None
         
         if self.provider == "openrouter":
             self.model = model_name or os.getenv("MODEL_NAME", "openrouter/anthropic/claude-3.5-sonnet")
@@ -14,10 +15,9 @@ class HermesLLM:
             
         elif self.provider == "local":
             # For Ollama/vLLM hosting Gemma 4 locally
-            base_url = os.getenv("LOCAL_API_BASE", "http://localhost:11434")
+            self.api_base = os.getenv("LOCAL_API_BASE", "http://localhost:11434")
             model = model_name or os.getenv("MODEL_NAME", "gemma:4b")
             self.model = f"ollama/{model}"
-            litellm.api_base = base_url
             
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
@@ -48,11 +48,14 @@ class HermesLLM:
         print(f"Routing request to {self.model} via {self.provider}...")
         
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=messages,
-                temperature=0.2 # Low temp for code logic
-            )
+            call_kwargs = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": 0.2  # Low temp for code logic
+            }
+            if self.api_base:
+                call_kwargs["api_base"] = self.api_base
+            response = litellm.completion(**call_kwargs)
             code = response.choices[0].message.content
             
             # Clean up potential markdown formatting from LLM

@@ -58,7 +58,7 @@ class HermesBacktester:
 
         return metrics, portfolio
 
-    def check_goals(self, metrics: dict, config: dict) -> bool:
+    def check_goals(self, metrics: dict, config: dict) -> tuple:
         """
         Evaluates the backtest metrics against the user's custom strategy_config.yaml goals.
         """
