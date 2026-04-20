@@ -105,24 +105,28 @@ class OpenAlgoClient:
         """
         Fetch historical OHLCV data from OpenAlgo's Historify API.
 
-        Args:
-            symbol:     Ticker e.g. "RELIANCE", "NIFTY50"
-            exchange:   Exchange e.g. "NSE", "BSE", "NFO", "MCX"
-            interval:   Candle interval — "1minute", "5minute", "15minute",
-                        "30minute", "1hour", "1d"
+            interval:   Candle interval (mapped automatically)
             start_date: Start of the data range
             end_date:   End of the data range
 
         Returns:
-            pd.DataFrame with columns: [timestamp, open, high, low, close, volume]
-            Returns an empty DataFrame on error.
-
-        Supported brokers in this deployment: Zerodha, Upstox
+            pd.DataFrame with OHLCV data.
         """
+        # Map Hermes intervals to OpenAlgo API expectations
+        interval_map = {
+            "1d": "D",
+            "1minute": "1m",
+            "5minute": "5m",
+            "15minute": "15m",
+            "30minute": "30m",
+            "1hour": "1h"
+        }
+        api_interval = interval_map.get(interval, interval)
+
         payload = {
             "symbol": symbol,
             "exchange": exchange,
-            "interval": interval,
+            "interval": api_interval,
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
         }
@@ -318,6 +322,34 @@ class OpenAlgoClient:
         except Exception as e:
             print(f"[OpenAlgoClient] Error fetching funds: {e}")
             return {}
+
+    # -------------------------------------------------------------------------
+    # Strategy Management (New in OpenAlgo)
+    # -------------------------------------------------------------------------
+
+    def create_strategy(
+        self,
+        name: str,
+        platform: str = "Python",
+        strategy_type: str = "intraday",
+        trading_mode: str = "LONG"
+    ) -> dict:
+        """
+        Create a new strategy entry in OpenAlgo.
+        This will make the strategy appear in the OpenAlgo Strategies list.
+        """
+        payload = {
+            "name": name,
+            "platform": platform,
+            "strategy_type": strategy_type,
+            "trading_mode": trading_mode
+        }
+        try:
+            result = self._post("/api/v1/strategy/create", payload)
+            return result
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error creating strategy in OpenAlgo: {e}")
+            return {"status": "error", "message": str(e)}
 
 
 # ---------------------------------------------------------------------------

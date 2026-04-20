@@ -12,21 +12,25 @@ User Clicks "Start Research" in Streamlit UI
         ▼
 HermesRunner.execute_research_loop()
         │
-        ├── 1. Retrieve context from HermesMemory (wiki + skills)
+        ├── 1. Retrieve context from HermesMemory (wiki + MiroFish Grounding)
         │
-        ├── 2. Build prompt for the LLM (goal + past feedback)
+        ├── 2. Build prompt for the LLM (goal + grounding + past feedback)
         │
-        ├── 3. HermesLLM generates Python strategy code
+        ├── 3. HermesLLM generates Parameterized Python strategy code
         │
-        ├── 4. _sandbox_execute(): exec code with restricted builtins
+        ├── 4. _sandbox_execute(): exec code & extract PARAM_RANGES
         │
-        ├── 5. HermesBacktester.evaluate_signals() → metrics dict
+        ├── 5. HermesOptimizer: Local Grid/Random Search (Zero LLM Hits)
         │
-        ├── 6. check_goals() → goals_met? / failure_reasons?
+        ├── 6. HermesBacktester.evaluate_signals() → metrics dict
         │
-        ├── 7. HermesRegistry.log_iteration() → saves to SQLite
+        ├── 7. check_goals() → goals_met? / failure_reasons?
         │
-        ├── If goals_met → _export_strategy() → hermes_strategies/
+        ├── 8. OASIS Stress Test: Verify regime robustness locally
+        │
+        ├── 9. HermesRegistry.log_iteration() → saves to SQLite (incl. Strategy Concept)
+        │
+        ├── If goals_met → export_to_openalgo() → Auto-create in OpenAlgo API
         │
         └── If not → feed failures back into next iteration prompt
 ```
@@ -44,7 +48,7 @@ The orchestrator that ties all modules together.
 | `_sanitize_code(code)` | Static analysis to block dangerous patterns (`import os`, `eval()`, `exec()`, etc.) before exporting. |
 | `_safe_session_id(session_id)` | Strips path-unsafe characters from session IDs to prevent directory traversal. |
 | `_export_strategy(code)` | Wraps validated strategy code in OpenAlgo SDK boilerplate and writes to `hermes_strategies/{session_id}/strategy.py`. |
-| `export_to_openalgo(code, deploy)` | Exports locally AND optionally pushes the strategy to the live OpenAlgo container via REST API. |
+| `export_to_openalgo(code, deploy)` | Exports locally AND pushes a new strategy entry to OpenAlgo via the **Strategy Creation API** if `deploy=True`. |
 
 > [!WARNING]
 > The `_sandbox_execute()` method uses Python's `exec()` with a restricted `__builtins__` dictionary. While this prevents easy escapes, it is **not a full sandbox**. Do not run Hermes with access to production systems without additional container-level isolation.
@@ -66,6 +70,7 @@ Routes strategy generation prompts to the configured LLM provider.
 - `api_base` is stored per-instance (not globally mutated), so multiple `HermesLLM` instances can coexist safely.
 - LLM output is automatically stripped of markdown code fences (` ```python `) before use.
 - Temperature is fixed at `0.2` for deterministic code generation.
+- **Local Fallback**: Supports automatic fallback to a local Ollama instance if the primary cloud model fails (enabled via `.env` or UI).
 
 ---
 
@@ -78,6 +83,7 @@ Manages long-term context and reusable skills without ballooning the LLM context
 | System | Directory | Purpose |
 |---|---|---|
 | Wiki Vault | `hermes_wiki/` | Markdown files storing lessons, successes, failures |
+| Market Insights | `hermes_wiki/MARKET_INSIGHTS.md` | MiroFish grounding: Persistent relationships/correlations |
 | Skills Vault | `skills/` | Reusable Python scripts for common operations |
 
 | Method | Description |
@@ -102,7 +108,7 @@ SQLite-backed persistence for every iteration of the agent loop.
 
 | Table | Description |
 |---|---|
-| `strategy_iterations` | Logs every LLM iteration: session ID, code, metrics JSON, failures, goals met flag |
+| `strategy_iterations` | Logs every LLM iteration: session ID, strategy concept, code, metrics JSON, failures, goals met flag |
 | `generated_skills` | Index of all auto-generated skill scripts |
 
 | Method | Description |

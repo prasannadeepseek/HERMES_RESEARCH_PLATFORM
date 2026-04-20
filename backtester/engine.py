@@ -14,13 +14,18 @@ class HermesBacktester:
 
     def evaluate_signals(self, df: pd.DataFrame, entries: pd.Series, exits: pd.Series, 
                          short_entries: pd.Series = None, short_exits: pd.Series = None,
-                         freq: str = "1m"):
+                         freq: str = "1m", **kwargs):
         """
         Takes raw entry/exit boolean signals and processes them through vectorbt.
         Returns a dictionary of core performance metrics.
         """
+        # print(f"DEBUG: evaluate_signals called with {len(locals())} arguments.")
         # Ensure we are using the close price for signal execution
         price = df['close']
+        
+        # Count signals for debugging
+        entry_count = entries.sum() if entries is not None else 0
+        print(f"DEBUG: evaluate_signals received {entry_count} entry signals.")
 
         # Handle simple Long-only strategies if shorts aren't provided
         if short_entries is None:
@@ -41,14 +46,19 @@ class HermesBacktester:
             freq=freq
         )
 
-        # Extract Metrics
+        # Extract Metrics (Ensuring scalar values for stability)
+        def to_scalar(val):
+            if hasattr(val, 'iloc'):
+                return float(val.iloc[0]) if len(val) > 0 else 0.0
+            return float(val) if val is not None else 0.0
+
         metrics = {
-            "Total_Return_Pct": portfolio.total_return() * 100,
-            "Max_Drawdown_Pct": portfolio.max_drawdown() * 100,
-            "Win_Rate_Pct": portfolio.trades.win_rate() * 100,
-            "Sharpe_Ratio": portfolio.sharpe_ratio(),
-            "Total_Trades": len(portfolio.trades),
-            "Profit_Factor": portfolio.trades.profit_factor()
+            "Total_Return_Pct": to_scalar(portfolio.total_return()) * 100,
+            "Max_Drawdown_Pct": to_scalar(portfolio.max_drawdown()) * 100,
+            "Win_Rate_Pct": to_scalar(portfolio.trades.win_rate()) * 100,
+            "Sharpe_Ratio": to_scalar(portfolio.sharpe_ratio()),
+            "Total_Trades": int(to_scalar(len(portfolio.trades))),
+            "Profit_Factor": to_scalar(portfolio.trades.profit_factor())
         }
         
         # Replace NaN/Inf with 0 for cleaner LLM processing
@@ -86,3 +96,53 @@ class HermesBacktester:
                 failures.append(f"Win Rate ({metrics['Win_Rate_Pct']:.2f}%) below target ({config['min_win_rate']}%)")
 
         return goals_met, failures
+
+    def generate_regime_data(self, df: pd.DataFrame, regime: str = "volatile"):
+        """
+        Creates synthetic 'OASIS' regime data to stress test strategies locally.
+        """
+        synth = df.copy()
+        np.random.seed(42)
+        
+        if regime == "volatile":
+            # Increase noise/volatility by 3x
+            noise = np.random.normal(0, df['close'].std() * 0.05, len(df))
+            synth['close'] = synth['close'] + noise
+        elif regime == "crash":
+            # Inject a 10% flash crash in the middle
+            mid = len(df) // 2
+            synth.iloc[mid:mid+10, synth.columns.get_loc('close')] *= 0.90
+        elif regime == "trending":
+            # Add a strong artificial trend
+            trend = np.linspace(0, df['close'].mean() * 0.2, len(df))
+            synth['close'] = synth['close'] + trend
+            
+        return synth
+
+    def run_oasis_stress_test(self, df: pd.DataFrame, eval_func, params: dict):
+        """
+        Runs the strategy through multiple synthetic regimes to check robustness.
+        Returns a 'Robustness Score' (0-100).
+        """
+        regimes = ["volatile", "crash", "trending"]
+        pass_count = 0
+        
+        for r in regimes:
+            synth_df = self.generate_regime_data(df, regime=r)
+            try:
+                entries, exits, short_entries, short_exits = eval_func(synth_df, params)
+                metrics, _ = self.evaluate_signals(
+                    df=synth_df, 
+                    entries=entries, 
+                    exits=exits, 
+                    short_entries=short_entries, 
+                    short_exits=short_exits
+                )
+                
+                # If it doesn't blow up (ROI > -50%), we count it as a partial pass
+                if metrics.get("Total_Return_Pct", -100) > -50:
+                    pass_count += 1
+            except:
+                continue
+                
+        return (pass_count / len(regimes)) * 100

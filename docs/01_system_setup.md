@@ -148,7 +148,20 @@ streamlit run app.py
 
 ---
 
-## 6. Project Directory Layout
+## 6. Automated Deployment & Synchronization
+        
+Hermes is designed for a fully automated research-to-deployment loop. When a research session meets all defined goals (ROI, Drawdown, Robustness), the following happens:
+
+1.  **Local Export**: The strategy code is sanitized and saved to `hermes_strategies/`.
+2.  **OpenAlgo Registration**: Hermes calls the OpenAlgo **Strategy Creation API** (`POST /api/v1/strategy/create`) to automatically create an entry in your OpenAlgo dashboard.
+3.  **UI Feedback**: You will see a success message in Hermes, and the new strategy will immediately appear in your OpenAlgo "Strategies" list (Standard Strategies) for deployment.
+
+> [!NOTE]
+> This automation requires a valid `OPENALGO_API_KEY` to be set in your `.env`.
+
+---
+
+## 7. Project Directory Layout
 
 ```
 hermes_research_platform/
