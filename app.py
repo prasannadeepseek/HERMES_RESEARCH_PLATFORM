@@ -3,12 +3,16 @@ import pandas as pd
 import numpy as np
 import os
 import time
+import yfinance as yf
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from agent.registry import HermesRegistry
 from agent.memory import HermesMemory
 
 load_dotenv()
+# Initialise audit DB (creates hermes.db if missing)
+from agent.db import init_db
+init_db()
 
 st.set_page_config(page_title="Hermes AI Research Platform", page_icon="🦉", layout="wide")
 
@@ -93,15 +97,45 @@ with col2:
                     st.warning("No data returned from OpenAlgo. Falling back to sandbox data.")
             
             if df.empty:
-                # Sandbox fallback
-                dates = pd.date_range(end=datetime.now(), periods=1000, freq='D')
-                df = pd.DataFrame({
-                    "close": np.random.randn(1000).cumsum() + 100,
-                    "high": np.random.randn(1000).cumsum() + 105,
-                    "low": np.random.randn(1000).cumsum() + 95,
-                    "open": np.random.randn(1000).cumsum() + 100,
-                    "volume": np.random.randint(100, 1000, 1000)
-                }, index=dates)
+                # Yahoo Finance fallback
+                yf_symbol = symbol
+                if exchange == "NSE":
+                    yf_symbol = f"{symbol}.NS"
+                elif exchange == "BSE":
+                    yf_symbol = f"{symbol}.BO"
+
+                interval_map = {
+                    "1d": ("1y", "1d"),
+                    "1minute": ("7d", "1m"),
+                    "5minute": ("30d", "5m"),
+                    "15minute": ("30d", "15m"),
+                    "30minute": ("30d", "30m"),
+                    "1hour": ("180d", "1h"),
+                }
+                period, freq = interval_map.get(interval, ("1y", "1d"))
+                df = yf.download(
+                    yf_symbol,
+                    period=period,
+                    interval=freq,
+                    auto_adjust=True,
+                    progress=False,
+                ).reset_index()
+                if not df.empty:
+                    df = df.rename(columns={
+                        "Open": "open",
+                        "High": "high",
+                        "Low": "low",
+                        "Close": "close",
+                        "Volume": "volume",
+                    })
+                    # Ensure the date column exists before setting index
+                    if "Date" in df.columns:
+                        df = df.set_index("Date")
+                    elif "date" in df.columns:
+                        df = df.set_index("date")
+                    else:
+                        # Fall back to the first column assuming it holds datetime information
+                        df = df.set_index(df.columns[0])
 
         # 2. Config for Agent
         config = {
@@ -144,13 +178,14 @@ with col2:
                     cols[0].metric("Final ROI", f"{best['metrics'].get('Total_Return_Pct', 0):.2f}%")
                     cols[1].metric("Max Drawdown", f"{best['metrics'].get('Max_Drawdown_Pct', 0):.2f}%")
                     cols[2].metric("Robustness (OASIS)", f"{best.get('robustness_score', 0):.1f}%")
-                    
+                    # Render interactive vectorbt plot if available in session state
+                    if st.session_state.get('fig'):
+                        st.plotly_chart(st.session_state.fig, use_container_width=True)
                     if best.get('robustness_score', 0) >= 60:
                         st.success("🛡️ OASIS Stress Test Passed (Verified Robust)")
                     else:
                         st.warning("⚠️ OASIS Stress Test Warning (Fragile Strategy)")
-                
-                st.balloons()
+                    st.balloons()
             else:
                 st.error("❌ Failed to find a strategy meeting the criteria.")
 

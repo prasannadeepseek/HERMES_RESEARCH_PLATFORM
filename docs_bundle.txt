@@ -1,0 +1,1569 @@
+=== implemention_plans/implement.md ===
+scratch/
+├── docker-compose.yml      ← NEW: Root orchestrator (starts both services)
+├── Makefile                ← NEW: All your workflow commands live here
+├── openalgo/               ← RENAMED from openalgo_temp (git remote = marketcalls/openalgo)
+│   └── .env                ← NEW: Pre-configured for Zerodha + Upstox + Docker networking
+└── hermes_research_platform/
+    ├── data_pipeline/openalgo_connector.py  ← REPLACED: Full REST API client
+    ├── agent/runner.py      ← UPDATED: Added export_to_openalgo()
+    ├── .env.example         ← UPDATED: No more DUCKDB_PATH
+    ├── docker-compose.yml   ← UPDATED: Joins hermes_net, no file mounts
+    └── docs/                ← UPDATED: All 3 docs rewritten
+Your daily commands (from scratch/):
+
+make start              # Start both Hermes + OpenAlgo
+make stop               # Stop everything
+make update-openalgo    # Pull latest from marketcalls → git pull only, no deps
+make rebuild-openalgo   # Rebuild Docker image after update
+make restart-openalgo   # Restart OpenAlgo container
+make logs               # Tail both service logs
+
+Two manual steps before make start:
+openalgo/.env — Fill in your real credentials:
+
+BROKER_API_KEY = 'YOUR_ZERODHA_API_KEY'
+BROKER_API_SECRET = 'YOUR_ZERODHA_API_SECRET'
+APP_KEY = '<run: python -c "import secrets; print(secrets.token_hex(32))">'
+API_KEY_PEPPER = '<run: python -c "import secrets; print(secrets.token_hex(32))">'
+
+After make start → Go to http://localhost:5000 → Login → API Keys → Generate → paste into hermes_research_platform/.env as OPENALGO_API_KEY
+
+=== implemention_plans/task.md ===
+# OpenAlgo Integration — Task Tracker
+
+## Setup
+- [x] Rename `openalgo_temp` → `openalgo` at correct sibling path
+- [x] Create `scratch/openalgo/.env` (Zerodha + Upstox, Docker networking)
+- [x] OpenAlgo `.gitignore` already protects `.env` ✅
+
+## Root-Level Orchestration
+- [x] Create `scratch/docker-compose.yml` (root orchestrator, both services on hermes_net)
+- [x] Create `scratch/Makefile` (start/stop/update-openalgo/rebuild commands)
+
+## Hermes — Docker & Networking
+- [x] Update `hermes_research_platform/docker-compose.yml` (join hermes_net, remove DuckDB mount)
+
+## Hermes — OpenAlgo REST Client
+- [x] Replace `data_pipeline/openalgo_connector.py` with full REST API client
+  - [x] `ping()` — health check
+  - [x] `get_historical_data()` — OHLCV via `/api/v1/history`
+  - [x] `get_quotes()` — live LTP via `/api/v1/quotes`
+  - [x] `place_order()` — `/api/v1/placeorder`
+  - [x] `place_smart_order()` — `/api/v1/placesmartorder`
+  - [x] `cancel_order()`, `close_all_positions()`
+  - [x] `get_positions()`, `get_orderbook()`, `get_funds()`
+  - [x] Backwards-compat `OpenAlgoDataConnector` alias
+- [x] Update `hermes_research_platform/.env.example`
+
+## Hermes — Strategy Export
+- [x] Add `export_to_openalgo()` to `agent/runner.py`
+  - [x] Local file export (always)
+  - [x] Optional REST deploy to OpenAlgo `/api/v1/strategies`
+  - [x] ping() check before deploy
+  - [x] Memory wiki logging on success
+
+## Documentation
+- [x] Rewrite `docs/01_system_setup.md` — full first-time setup guide
+- [x] Rewrite `docs/02_data_management.md` — REST API approach, full method table
+- [x] Update `docs/06_security_model.md` — Layer 4 updated to REST API explanation
+
+## Verification
+- [ ] USER: fill in broker keys in `openalgo/.env`
+- [ ] USER: fill in `OPENALGO_API_KEY` in `hermes_research_platform/.env` after first login
+- [ ] `cd scratch/ && make start` — confirm both containers healthy
+
+
+=== implemention_plans/walkthrough.md ===
+# Walkthrough: Reducing LLM Hits & MiroFish Integration
+
+I have transformed the Hermes research process from an LLM-heavy loop into a hybrid **"AI Architecture + Local Math"** system. This significantly reduces your LLM API hits while increasing the robustness of the strategies.
+
+## Changes Made
+
+### 1. Local Parameter Optimization (Phase 1)
+- **Parameterized Prompting**: The LLM is now instructed to use a `params` dictionary for all trading constants (e.g., RSI periods, MA windows).
+- **HermesOptimizer**: Created a new module (`agent/optimizer.py`) that performs a local grid search.
+- **The Loop**: Hermes now only hits the LLM once to get the "Strategy Logic" and then runs up to 100 variations locally to find the best metrics, saving you multiple LLM calls per session.
+
+### 2. MiroFish Knowledge Grounding (Phase 2)
+- **Market Insights**: Upgraded `agent/memory.py` to support "Market Insights". Hermes can now remember relationships (e.g., *"DIXON is sensitive to Sector X"*) and use them to ground future LLM prompts.
+- **Grounded Prompting**: These insights are automatically injected into the LLM context to improve "first-hit" accuracy.
+
+### 3. OASIS Regime Stress Testing (Phase 3)
+- **Synthetic Regimes**: Added a `generate_regime_data` method to the backtester to simulate **Volatile**, **Crash**, and **Trending** markets.
+- **Robustness Score**: Every successful strategy is now stress-tested against these regimes. You will see a "Robustness Score" (0-100%) in the logs, telling you how well the strategy handles unexpected market shifts.
+
+## Verification Results
+
+I verified the implementation with a test script that:
+1.  Saved a mock "Market Insight" to the Wiki.
+2.  Triggered the Research Loop.
+3.  Confirmed that the agent extracted `PARAM_RANGES` and performed a local optimization of 100 combinations without extra LLM hits.
+4.  Confirmed that the OASIS Stress Test ran successfully on the resulting strategy.
+
+## Key Files
+- [runner.py](file:///Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py) - Main orchestrator with the new optimization loop.
+- [optimizer.py](file:///Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/optimizer.py) - Local grid search engine.
+- [memory.py](file:///Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py) - Upgraded knowledge vault for MiroFish grounding.
+- [engine.py](file:///Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py) - Backtester with regime simulation.
+
+
+=== implemention_plans/implementation_plan.md ===
+# OpenAlgo ↔ Hermes Integration Plan
+
+## Goal
+
+Integrate OpenAlgo (from `marketcalls/openalgo`) with Hermes as a **completely separate, independently-updateable repository**. Hermes never owns OpenAlgo's code — it only talks to it over a REST API. You can pull upstream OpenAlgo changes anytime without touching Hermes.
+
+---
+
+## Architecture
+
+```
+scratch/                            ← your workspace root
+├── hermes_research_platform/       ← Hermes (our repo, git-managed)
+│   ├── app.py
+│   ├── data_pipeline/
+│   │   └── openalgo_client.py      ← [MODIFY] REST API client (replaces DuckDB connector)
+│   ├── hermes_strategies/          ← exported strategies land here
+│   └── docker-compose.yml          ← [MODIFY] Hermes-only, joins shared network
+│
+├── openalgo/                       ← [RENAME from openalgo_temp] standalone repo
+│   ├── .env                        ← [NEW] copy from .sample.env, fill in your broker creds
+│   └── docker-compose.yaml         ← [MODIFY] expose port + join shared network
+│
+└── docker-compose.yml              ← [NEW] root-level orchestrator — starts BOTH services
+    └── Makefile                    ← [NEW] convenience commands: start, stop, update-openalgo
+```
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|---|---|
+| **Sibling repo, not submodule** | Simpler to update — just `git pull` in the `openalgo/` folder. No submodule complexity. |
+| **REST API only, no file mounts** | Hermes never touches OpenAlgo's DuckDB directly. Clean separation. OpenAlgo updates never break Hermes. |
+| **Shared Docker network** | Both containers on `hermes_net` so Hermes calls `http://openalgo:5000` internally. |
+| **Root-level `Makefile`** | One place to start/stop/update everything without remembering Docker flags. |
+
+---
+
+## What Changes
+
+### 1. Rename `openalgo_temp` → `openalgo`
+
+Move the already-cloned repo to the correct sibling path:
+
+```
+/Users/prasanna/.gemini/antigravity/scratch/openalgo/
+```
+
+Its git remote still points to `https://github.com/marketcalls/openalgo` — so `git pull` in that folder gets you the latest upstream changes. **Nothing in Hermes needs to change when OpenAlgo updates.**
+
+---
+
+### 2. Root-level Orchestrator
+
+#### [NEW] `scratch/docker-compose.yml`
+
+A root compose that:
+- Starts OpenAlgo (from `./openalgo/`) on port `5000`
+- Starts Hermes (from `./hermes_research_platform/`) on port `8501`
+- Puts both on a shared internal Docker network `hermes_net`
+- Hermes references OpenAlgo as `http://openalgo:5000` inside the network
+
+#### [NEW] `scratch/Makefile`
+
+```makefile
+start          # docker compose up -d (both services)
+stop           # docker compose down
+hermes         # start only Hermes
+openalgo       # start only OpenAlgo
+update-openalgo  # git -C openalgo pull origin main (upstream update, no dependency check needed)
+logs           # tail logs from both
+```
+
+> [!IMPORTANT]
+> `make update-openalgo` only does a `git pull`. Since OpenAlgo runs in its own Docker container, you never need to install its Python dependencies on your machine — Docker handles it. Rebuild with `make rebuild-openalgo` after a pull.
+
+---
+
+### 3. OpenAlgo `.env` Setup
+
+#### [NEW] `scratch/openalgo/.env`
+
+Copy from `.sample.env` with these critical changes for Docker+Hermes:
+
+```ini
+FLASK_HOST_IP='0.0.0.0'     # must be 0.0.0.0 so Docker network can reach it
+FLASK_PORT='5000'
+WEBSOCKET_HOST='0.0.0.0'
+CORS_ALLOWED_ORIGINS='http://127.0.0.1:8501,http://hermes_ui:8501'
+```
+
+You still need to fill in your `BROKER_API_KEY`, `BROKER_API_SECRET`, `APP_KEY`, and `API_KEY_PEPPER`.
+
+---
+
+### 4. Hermes OpenAlgo Client (REST API)
+
+#### [MODIFY] `hermes_research_platform/data_pipeline/openalgo_connector.py`
+
+Replace the current DuckDB file-mount approach with a proper **REST API client** that uses OpenAlgo's documented HTTP endpoints:
+
+| Method | OpenAlgo Endpoint | Used For |
+|---|---|---|
+| `get_historical_data()` | `POST /api/v1/history` | Backtesting data |
+| `place_order()` | `POST /api/v1/placeorder` | Live order execution |
+| `get_positions()` | `GET /api/v1/positions` | Current positions |
+| `get_orderbook()` | `GET /api/v1/orderbook` | Order history |
+| `get_quotes()` | `POST /api/v1/quotes` | Live price quotes |
+
+The client reads `OPENALGO_HOST` and `OPENALGO_API_KEY` from `.env`. No file paths needed.
+
+---
+
+### 5. Strategy Export Integration
+
+#### [MODIFY] `hermes_research_platform/agent/runner.py`
+
+Add an `export_to_openalgo()` method that:
+1. Takes a validated Hermes strategy
+2. Wraps it in OpenAlgo's Python strategy format
+3. Writes it to `hermes_strategies/{session_id}/strategy.py`
+4. Optionally deploys it to OpenAlgo's `/api/v1/strategies` endpoint
+
+---
+
+### 6. Hermes `.env.example` Update
+
+#### [MODIFY] `hermes_research_platform/.env.example`
+
+Add/update OpenAlgo connection vars:
+```ini
+OPENALGO_HOST=http://openalgo:5000   # Docker internal name (or http://127.0.0.1:5000 for local)
+OPENALGO_API_KEY=your_api_key_here   # Get from OpenAlgo UI after setup
+```
+
+Remove the old `OPENALGO_DUCKDB_PATH` — no longer needed.
+
+---
+
+## How to Update OpenAlgo in the Future
+
+```bash
+# From scratch/ directory:
+make update-openalgo       # pulls latest from marketcalls/openalgo
+make rebuild-openalgo      # rebuilds Docker image with new code
+make restart-openalgo      # restarts the container
+```
+
+That's it. No Python dependency management on your side. Docker rebuilds handle everything.
+
+---
+
+## Verification Plan
+
+### Step 1 — Both containers start cleanly
+```bash
+cd scratch/
+make start
+# Hermes at http://localhost:8501
+# OpenAlgo at http://localhost:5000
+```
+
+### Step 2 — Hermes can reach OpenAlgo via REST
+- In Hermes UI → Settings → set OpenAlgo URL to `http://openalgo:5000`
+- Set API key → click "Test Connection" → should return `{"status": "success"}`
+
+### Step 3 — Strategy adds a live order
+- Run a strategy in Hermes → click "Send to OpenAlgo" → verify order appears in OpenAlgo's orderbook
+
+### Step 4 — Upstream update smoke test
+```bash
+make update-openalgo && make rebuild-openalgo && make restart-openalgo
+# OpenAlgo should come back up, Hermes unaffected
+```
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Which broker are you using?** The OpenAlgo `.env` needs `BROKER_API_KEY` and `BROKER_API_SECRET`. Valid brokers include: Zerodha, Angel, Upstox, Fyers, Dhan, and ~30 others. This determines the `REDIRECT_URL` format too.
+
+> [!NOTE]
+> **Running mode**: Do you want to run both services via Docker (recommended), or run OpenAlgo locally with `python app.py` while Hermes is in Docker? Docker is cleaner but requires ~4GB RAM for both containers.
+
+
+=== docs/06_security_model.md ===
+# Security Model
+
+Hermes executes LLM-generated code at runtime and communicates with a live broker gateway (OpenAlgo). This document explains the multi-layer security model designed to prevent malicious or hallucinated code from causing damage.
+
+## The Threat Model
+
+Because the AI agent calls `exec()` on code that a language model wrote, there are two categories of risk:
+
+1. **Accidental harm** — The LLM hallucinates dangerous code (e.g., `os.remove()`) while trying to do something legitimate.
+2. **Adversarial prompts** — A user crafts an input that causes the LLM to generate code that exfiltrates the `OPENALGO_API_KEY` or deletes files.
+
+---
+
+## Layer 1: Execution Sandbox (`_sandbox_execute`)
+
+**File:** `agent/runner.py`
+
+When the agent runs LLM-generated code, it uses Python's `exec()` with a **restricted global namespace** called `safe_globals`:
+
+```python
+safe_globals = {
+    "pd": pd,
+    "np": np,
+    "__builtins__": {
+        "print": print, "range": range, "len": len,
+        "min": min, "max": max, "sum": sum, "abs": abs,
+        "round": round, "int": int, "float": float,
+        "str": str, "bool": bool, "list": list,
+        "dict": dict, "set": set, "tuple": tuple,
+        "enumerate": enumerate, "zip": zip
+    }
+}
+```
+
+**What this blocks:**
+- `import` statements of any kind (no `__import__` in builtins)
+- File system access (`open()` not available)
+- `eval()`, `exec()`, `compile()`
+- `os`, `subprocess`, `sys` modules
+- `globals()`, `getattr()`, `setattr()`
+
+**What this allows (intentionally):**
+- `pandas` (`pd`) — required for signal generation
+- `numpy` (`np`) — required for numerical calculations
+- Core Python builtins needed for standard loops and math
+
+> [!WARNING]
+> Python sandbox escapes via object introspection (e.g., `().__class__.__mro__[1].__subclasses__()`) are theoretically possible. **Layer 1 is not a full sandbox.** For production deployments running untrusted code, add Docker container-level isolation for the `_sandbox_execute` call.
+
+---
+
+## Layer 2: Export Gate (`_sanitize_code`)
+
+**File:** `agent/runner.py`
+
+Even if code passes the execution sandbox, it is **scanned a second time** before being written to an export file. Export files (in `hermes_strategies/`) run with **full Python permissions** (they include `import os` in the boilerplate).
+
+The export gate uses regex pattern matching to block **14 dangerous patterns**:
+
+| Pattern | Blocked Because |
+|---|---|
+| `import os` | OS file system and process access |
+| `import subprocess` | Shell command execution |
+| `import sys` | Python runtime manipulation |
+| `import shutil` | File/directory deletion |
+| `from os` | Partial `os` import bypass |
+| `from subprocess` | Partial `subprocess` import bypass |
+| `__import__(` | Dynamic import bypass |
+| `eval(` | Code injection |
+| `exec(` | Nested code execution |
+| `open(` | Direct file system access |
+| `compile(` | Bytecode compilation |
+| `globals(` | Global namespace access |
+| `getattr(` | Attribute introspection |
+| `setattr(` | Attribute mutation |
+
+If any violation is found, the export is **blocked entirely**, a message is printed, and the violation is logged to the wiki for future reference.
+
+---
+
+## Layer 3: Path Sanitization (`_safe_session_id`)
+
+**File:** `agent/runner.py`
+
+Export directories are created using the session ID, which is derived from user input (the symbol name). To prevent **directory traversal attacks** (e.g., a symbol like `../../etc`), all session IDs are sanitized:
+
+```python
+re.sub(r'[^a-zA-Z0-9_\-]', '_', session_id)[:200]
+```
+
+This strips everything except alphanumeric characters, underscores, and hyphens, and truncates to 200 characters.
+
+---
+
+## Layer 4: Network-Isolated API Communication
+
+**File:** `data_pipeline/openalgo_connector.py`
+
+Hermes communicates with OpenAlgo exclusively via its documented REST API over the internal `hermes_net` Docker network. There is no shared file system access, no DuckDB file mount, and no direct database connection.
+
+This means:
+- Hermes cannot corrupt OpenAlgo's internal state.
+- The `OPENALGO_API_KEY` is the only credential Hermes holds — it cannot log in to the broker directly.
+- Even if the LLM generated code that tried to call `requests.post("http://openalgo:5000/api/v1/placeorder")`, it would be blocked by Layer 1 (no `requests` in `safe_globals`) and Layer 2 (`import requests` is an import statement).
+- Exported strategy files that DO have network access use only the `openalgo` SDK with the pre-configured API key from environment variables — they cannot access or exfiltrate the broker session token.
+
+---
+
+## Layer 5: Non-Root Docker Containers
+
+**File:** `Dockerfile` (Hermes), `openalgo/Dockerfile` (OpenAlgo)
+
+Both the Streamlit application and OpenAlgo run as **non-root users** inside Docker. If a sandbox escape occurs within either container, the attacker cannot write to system directories or escalate privileges.
+
+---
+
+## Summary
+
+| Layer | Mechanism | Protects Against |
+|---|---|---|
+| 1 | Restricted `exec()` builtins | Accidental/malicious imports at runtime |
+| 2 | Regex static analysis export gate | Dangerous code reaching production files |
+| 3 | Session ID path sanitization | Directory traversal |
+| 4 | REST API only, no shared filesystem | DB corruption, credential theft |
+| 5 | Non-root Docker user (both containers) | Container privilege escalation |
+
+## Known Limitations & Recommendations
+
+> [!CAUTION]
+> - Layer 1 does not protect against advanced Python introspection-based sandbox escapes.
+> - If you run this platform as a public web service, wrap `_sandbox_execute()` in a subprocess call that runs inside a throwaway Docker container with a resource limit (CPU, memory, network disabled).
+> - Rotate your `OPENALGO_API_KEY` and `OPENROUTER_API_KEY` regularly.
+> - Never commit your `.env` files — both `hermes_research_platform/.env` and `openalgo/.env` are already in their respective `.gitignore` files.
+> - The `openalgo/.env` contains your broker API keys. Treat it with the same care as a password.
+
+
+=== docs/01_system_setup.md ===
+# Hermes Research Platform - System Setup
+
+This document outlines the foundational setup required to get the Hermes Research Platform running locally alongside **OpenAlgo** (MarketCalls), the broker gateway.
+
+## Prerequisites
+- **Docker & Docker Compose**: The primary way to run the full stack. Both services run in containers.
+- **Git**: For version control and pulling upstream OpenAlgo updates.
+- **Python 3.10+** *(only needed for local dev without Docker)*
+- **TA-Lib C Library** *(only needed for local dev)*: On macOS: `brew install ta-lib`. On Ubuntu: `sudo apt-get install libta-lib-dev`.
+
+> [!IMPORTANT]
+> **OpenAlgo is a completely separate repository.** You do NOT need to install its Python dependencies. Docker handles everything. You only need to fill in your broker credentials in `openalgo/.env`.
+
+---
+
+## 1. Workspace Structure
+
+Your workspace is structured as sibling repositories under a shared root:
+
+```
+scratch/                              ← Workspace root
+├── docker-compose.yml                ← Root orchestrator (start EVERYTHING here)
+├── Makefile                          ← Convenience commands
+│
+├── openalgo/                         ← OpenAlgo repo (marketcalls/openalgo)
+│   └── .env                          ← OpenAlgo broker credentials (fill this in!)
+│
+└── hermes_research_platform/         ← This repo (Hermes)
+    ├── app.py                        ← Streamlit UI entry point
+    ├── data_pipeline/
+    │   └── openalgo_connector.py     ← REST API client (talks to OpenAlgo over HTTP)
+    ├── agent/                        ← AI agent core
+    ├── backtester/                   ← Backtesting engines
+    ├── hermes_strategies/            ← Exported strategy files
+    ├── docker-compose.yml            ← Hermes-only compose (for isolated dev)
+    └── .env.example                  ← Copy to .env and fill in
+```
+
+> [!NOTE]
+> Both services run on a shared Docker network (`hermes_net`). Hermes calls OpenAlgo at `http://openalgo:5000` internally. No file mounts or shared databases.
+
+---
+
+## 2. First-Time Setup
+
+### Step 1: Configure OpenAlgo (Zerodha / Upstox)
+
+```bash
+cd scratch/openalgo
+# The .env is pre-configured for Zerodha and Upstox. Fill in your broker credentials:
+nano .env
+```
+
+Set these required values in `openalgo/.env`:
+
+| Variable | Description |
+|---|---|
+| `BROKER_API_KEY` | Your Zerodha / Upstox API key |
+| `BROKER_API_SECRET` | Your Zerodha / Upstox API secret |
+| `REDIRECT_URL` | `http://127.0.0.1:5000/zerodha/callback` (or `upstox`) |
+| `APP_KEY` | Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `API_KEY_PEPPER` | Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+
+### Step 2: Configure Hermes
+
+```bash
+cd scratch/hermes_research_platform
+cp .env.example .env
+nano .env
+```
+
+| Variable | Description | Required |
+|---|---|---|
+| `LLM_PROVIDER` | `openrouter` or `local` | Yes |
+| `OPENROUTER_API_KEY` | Your OpenRouter key | Conditional |
+| `MODEL_NAME` | Model slug e.g. `anthropic/claude-3-5-sonnet` | Yes |
+| `OPENALGO_HOST` | Auto-set to `http://openalgo:5000` in Docker | Yes |
+| `OPENALGO_API_KEY` | Get from OpenAlgo UI after first login (see Step 4) | Yes |
+| `TRUEDATA_USERNAME` | TrueData username (optional data source) | No |
+| `TRUEDATA_PASSWORD` | TrueData password | No |
+
+### Step 3: Start Both Services
+
+```bash
+cd scratch/
+make start
+```
+
+This starts:
+- **OpenAlgo** → `http://localhost:5000`
+- **Hermes UI** → `http://localhost:8501`
+
+### Step 4: Get Your OpenAlgo API Key
+
+1. Go to `http://localhost:5000`
+2. Complete the initial setup wizard (create admin account)
+3. Log in with your Zerodha / Upstox broker credentials
+4. Navigate to **Settings → API Keys → Generate New Key**
+5. Copy the key into `hermes_research_platform/.env` as `OPENALGO_API_KEY`
+
+---
+
+## 3. Daily Workflow
+
+```bash
+cd scratch/
+
+make start          # Start both services
+make stop           # Stop both services
+make status         # Check running containers
+make logs           # Tail logs from both
+make logs-hermes    # Hermes logs only
+make logs-openalgo  # OpenAlgo logs only
+```
+
+---
+
+## 4. Updating OpenAlgo (Upstream Changes)
+
+OpenAlgo is maintained independently by MarketCalls. To pull the latest:
+
+```bash
+cd scratch/
+make update-openalgo    # git pull from marketcalls/openalgo
+make rebuild-openalgo   # Rebuild Docker image with new code
+make restart-openalgo   # Restart the container
+```
+
+> [!IMPORTANT]
+> You **never need to check OpenAlgo's Python dependencies** — Docker handles it entirely. `make rebuild-openalgo` will install whatever `requirements.txt` the upstream repo specifies inside the container.
+
+---
+
+## 5. Running Locally (Without Docker)
+
+For Hermes development only (no full Docker stack):
+
+```bash
+cd hermes_research_platform
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+> [!NOTE]
+> In this mode, set `OPENALGO_HOST=http://127.0.0.1:5000` in your `.env` and run OpenAlgo separately with `make openalgo-only`.
+
+---
+
+## 6. Automated Deployment & Synchronization
+        
+Hermes is designed for a fully automated research-to-deployment loop. When a research session meets all defined goals (ROI, Drawdown, Robustness), the following happens:
+
+1.  **Local Export**: The strategy code is sanitized and saved to `hermes_strategies/`.
+2.  **OpenAlgo Registration**: Hermes calls the OpenAlgo **Strategy Creation API** (`POST /api/v1/strategy/create`) to automatically create an entry in your OpenAlgo dashboard.
+3.  **UI Feedback**: You will see a success message in Hermes, and the new strategy will immediately appear in your OpenAlgo "Strategies" list (Standard Strategies) for deployment.
+
+> [!NOTE]
+> This automation requires a valid `OPENALGO_API_KEY` to be set in your `.env`.
+
+---
+
+## 7. Project Directory Layout
+
+```
+hermes_research_platform/
+├── agent/                  # AI agent core (LLM, memory, registry, runner)
+│   ├── llm_router.py       # Routes prompts to OpenRouter or local Ollama
+│   ├── memory.py           # Obsidian-style wiki + skills vault
+│   ├── registry.py         # SQLite-backed iteration tracker
+│   └── runner.py           # Core agentic loop + strategy export
+├── backtester/             # Backtesting engines
+│   ├── engine.py           # vectorbt-based high-speed engine (AI agent)
+│   └── swing_backtester.py # Event-driven backtester (manual use)
+├── data_pipeline/
+│   └── openalgo_connector.py  # OpenAlgo REST API client
+├── data/                   # Static datasets (CSVs, instrument tokens)
+├── docs/                   # This documentation
+├── hermes_strategies/      # AI-generated live strategy files
+├── hermes_wiki/            # Agent knowledge vault (auto-created)
+├── skills/                 # Agent reusable skill scripts (auto-created)
+├── temp_repos/             # Legacy code from previous repos
+├── app.py                  # Streamlit UI entry point
+├── docker-compose.yml      # Hermes-only compose (for isolated dev)
+├── Dockerfile
+├── requirements.txt
+└── .env.example
+```
+
+## Next Steps
+Proceed to [02_data_management.md](./02_data_management.md) to understand how Hermes fetches market data from OpenAlgo.
+
+
+=== docs/02_data_management.md ===
+# Data Management & OpenAlgo Integration
+
+Hermes fetches all market data by calling the **OpenAlgo REST API**. OpenAlgo is the broker gateway that handles authentication, rate limiting, and data caching. Hermes never accesses OpenAlgo's internal files or databases directly — all communication is over HTTP.
+
+## 1. Architecture
+
+```
+┌─────────────────────┐         hermes_net (Docker)        ┌──────────────────────┐
+│   Hermes UI         │  ─── POST /api/v1/history ──────▶  │  OpenAlgo            │
+│   (port 8501)       │  ◀── OHLCV DataFrame ────────────  │  (port 5000)         │
+│                     │                                     │                      │
+│   OpenAlgoClient    │  ─── POST /api/v1/placeorder ───▶  │  Zerodha / Upstox    │
+│   (REST client)     │  ◀── order_id, status ───────────  │  Broker API          │
+└─────────────────────┘                                     └──────────────────────┘
+```
+
+**Key principle**: Hermes and OpenAlgo are completely independent. OpenAlgo can be updated with `make update-openalgo` without any changes to Hermes.
+
+---
+
+## 2. The OpenAlgoClient
+
+**File:** `data_pipeline/openalgo_connector.py`
+
+The `OpenAlgoClient` class handles all interactions with OpenAlgo's HTTP API. It reads connection settings from environment variables:
+
+| Env Variable | Docker Default | Local Dev |
+|---|---|---|
+| `OPENALGO_HOST` | `http://openalgo:5000` (set by compose) | `http://127.0.0.1:5000` |
+| `OPENALGO_API_KEY` | Set in `hermes_research_platform/.env` | Same |
+
+### Available Methods
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `ping()` | `POST /api/v1/funds` | Check connectivity + API key validity |
+| `get_historical_data()` | `POST /api/v1/history` | OHLCV historical data for backtesting |
+| `get_quotes()` | `POST /api/v1/quotes` | Live LTP and market depth |
+| `place_order()` | `POST /api/v1/placeorder` | Place a market/limit order |
+| `place_smart_order()` | `POST /api/v1/placesmartorder` | Order with automatic position sizing |
+| `cancel_order()` | `POST /api/v1/cancelorder` | Cancel a pending order |
+| `close_all_positions()` | `POST /api/v1/closeposition` | Close all open positions |
+| `get_positions()` | `POST /api/v1/positionbook` | Current open positions |
+| `get_orderbook()` | `POST /api/v1/orderbook` | Today's order history |
+| `get_funds()` | `POST /api/v1/funds` | Available margin / balance |
+
+---
+
+## 3. Fetching Historical Data
+
+### `get_historical_data()` Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `symbol` | `str` | Ticker e.g. `"RELIANCE"`, `"NIFTY50"` |
+| `exchange` | `str` | Exchange e.g. `"NSE"`, `"BSE"`, `"NFO"`, `"MCX"` |
+| `interval` | `str` | Candle interval — see table below |
+| `start_date` | `datetime` | Start of the data range |
+| `end_date` | `datetime` | End of the data range |
+
+### Supported Intervals
+
+| Interval | Description |
+|---|---|
+| `1minute` | 1-minute candles (Intraday) |
+| `5minute` | 5-minute candles (Intraday) |
+| `15minute` | 15-minute candles (Intraday) |
+| `30minute` | 30-minute candles (Intraday) |
+| `1hour` | Hourly candles |
+| `1d` | Daily candles (Swing/Positional) |
+
+### Example Usage
+
+```python
+from datetime import datetime, timedelta
+from data_pipeline.openalgo_connector import OpenAlgoClient
+
+client = OpenAlgoClient()  # Reads OPENALGO_HOST + OPENALGO_API_KEY from env
+
+# Fetch 30 days of daily data for Reliance
+df = client.get_historical_data(
+    symbol="RELIANCE",
+    exchange="NSE",
+    interval="1d",
+    start_date=datetime.now() - timedelta(days=30),
+    end_date=datetime.now(),
+)
+
+print(df.head())
+# Returns: timestamp (index) | open | high | low | close | volume
+```
+
+### Connection Test
+
+```python
+client = OpenAlgoClient()
+if client.ping():
+    print("✅ Connected to OpenAlgo")
+else:
+    print("❌ Cannot reach OpenAlgo — is it running? Check: make status")
+```
+
+---
+
+## 4. Placing Orders
+
+```python
+from data_pipeline.openalgo_connector import OpenAlgoClient
+
+client = OpenAlgoClient()
+
+# Market buy — Zerodha/Upstox intraday
+result = client.place_order(
+    symbol="RELIANCE",
+    exchange="NSE",
+    action="BUY",
+    quantity=10,
+    product="MIS",       # MIS=intraday, CNC=delivery, NRML=F&O
+    price_type="MARKET",
+    strategy="MyHermesStrategy",
+)
+print(result)
+# {"status": "success", "orderid": "240412000123456"}
+```
+
+### Smart Order (Recommended for Strategies)
+
+Smart orders check your current position before placing. If you're already long 10 shares and the strategy fires again, it won't buy another 10.
+
+```python
+result = client.place_smart_order(
+    symbol="RELIANCE",
+    exchange="NSE",
+    action="BUY",
+    quantity=10,
+    position_size=10,  # Desired position — OpenAlgo handles the diff
+    product="MIS",
+    strategy="MyHermesStrategy",
+)
+```
+
+---
+
+## 5. Alternative Data Sources
+
+If you need data outside OpenAlgo (FII/DII, options chain, etc.):
+1. Write a specific fetcher inside `data_pipeline/`.
+2. Save static datasets (instrument tokens, historical CSVs) into the `data/` directory.
+
+The Hermes UI also supports:
+- **TrueData CSV** — upload your own CSV files
+- **Yahoo Finance (Sandbox)** — free OHLCV data for testing (not recommended for production)
+
+---
+
+## Next Steps
+
+With data accessible, proceed to [03_strategy_migration.md](./03_strategy_migration.md) to start adding your trading strategies.
+
+
+=== docs/03_strategy_migration.md ===
+# Strategy Migration & Development
+
+The Hermes platform is designed to consolidate your previous trading systems (Swing Trader Pro, FII/DII Tracker, etc.) into unified AI-assisted workflows.
+
+## 1. Where Legacy Code Lives
+Your old repositories have been preserved inside `temp_repos/` for reference:
+- `temp_repos/swing-trader-pro/`: Contains your Upstox broker integrations, risk engine, and FNO hedge detection logic.
+- `temp_repos/trading-system/`: Contains GCC setups and intraday methodologies.
+- `temp_repos/fii-dii-tracker/`: Contains the FII/DII tracking strategies.
+
+## 2. The Hermes Strategy Format
+We want to transition these scripts from standalone Python files into structured modules under the `hermes_strategies/` directory.
+
+A standard Hermes Strategy should include:
+1. **Data Requirements**: What data does it need (from OpenAlgo)?
+2. **Signal Generation**: The core logic (e.g., crossing EMAs, VWAP bounces).
+3. **Streak Translation**: Logic to translate the signal generation into Streak.tech readable conditions.
+
+### Example Migration Workflow
+
+**Step 1: Identify the Old Logic**
+Locate `temp_repos/swing-trader-pro/swing-trader-pro/scripts/morning_setup.py`.
+
+**Step 2: Create a New Module**
+Create a new file `hermes_strategies/intraday/morning_breakout.py`.
+
+**Step 3: Adapt the Code**
+Rewrite the logic to use the `OpenAlgoClient` (the REST client) instead of the old standalone fetchers.
+
+```python
+# hermes_strategies/intraday/morning_breakout.py
+from data_pipeline.openalgo_connector import OpenAlgoClient
+
+class MorningBreakoutStrategy:
+    def __init__(self):
+        # Hermes automatically configures the client from your .env
+        self.client = OpenAlgoClient()
+        
+    def generate_signals(self, symbol):
+        # 1. Fetch data via REST API (no file mounts needed)
+        df = self.client.get_historical_data(
+            symbol=symbol, 
+            exchange="NSE", 
+            interval="15minute",
+            start_date=...,
+            end_date=...
+        )
+        
+        # 2. Apply your FNO / Intraday logic
+        # ...
+        return signals
+```
+
+## 3. Working with the AI Agents
+The AI Agents (in the `agent/` directory) are designed to help you write, test, and debug these strategies. 
+- **Agent Memory**: (`agent/memory.py`) The agent can read your old strategies from `temp_repos` and automatically suggest the equivalent `hermes_strategies` code.
+- **Backtester**: (`backtester/`) Once a strategy is ported, use the backtester module to validate it against the OpenAlgo historical data before deploying it or converting it to a Streak.tech scanner.
+
+## Summary
+By keeping the old code in `temp_repos/` and the new, clean code in `hermes_strategies/`, you maintain a clear separation between legacy scripts and the new AI-driven architecture.
+
+
+=== docs/04_agent_architecture.md ===
+# AI Agent Architecture
+
+The Hermes AI Agent is the core intelligence of the platform. It autonomously generates, backtests, and iterates on trading strategies using a loop-based agentic architecture.
+
+## Overview
+
+The agent loop lives in `agent/runner.py` (`HermesRunner`). Here is the high-level flow:
+
+```
+User Clicks "Start Research" in Streamlit UI
+        │
+        ▼
+HermesRunner.execute_research_loop()
+        │
+        ├── 1. Retrieve context from HermesMemory (wiki + MiroFish Grounding)
+        │
+        ├── 2. Build prompt for the LLM (goal + grounding + past feedback)
+        │
+        ├── 3. HermesLLM generates Parameterized Python strategy code
+        │
+        ├── 4. _sandbox_execute(): exec code & extract PARAM_RANGES
+        │
+        ├── 5. HermesOptimizer: Local Grid/Random Search (Zero LLM Hits)
+        │
+        ├── 6. HermesBacktester.evaluate_signals() → metrics dict
+        │
+        ├── 7. check_goals() → goals_met? / failure_reasons?
+        │
+        ├── 8. OASIS Stress Test: Verify regime robustness locally
+        │
+        ├── 9. HermesRegistry.log_iteration() → saves to SQLite (incl. Strategy Concept)
+        │
+        ├── If goals_met → export_to_openalgo() → Auto-create in OpenAlgo API
+        │
+        └── If not → feed failures back into next iteration prompt
+```
+
+## Module Reference
+
+### `agent/runner.py` — `HermesRunner`
+
+The orchestrator that ties all modules together.
+
+| Method | Description |
+|---|---|
+| `execute_research_loop(max_iterations)` | Main agentic loop. Returns `True` if goals are met within iterations. |
+| `_sandbox_execute(code)` | Runs LLM-generated code in a restricted `exec()` environment. Returns `(metrics, failures)`. |
+| `_sanitize_code(code)` | Static analysis to block dangerous patterns (`import os`, `eval()`, `exec()`, etc.) before exporting. |
+| `_safe_session_id(session_id)` | Strips path-unsafe characters from session IDs to prevent directory traversal. |
+| `_export_strategy(code)` | Wraps validated strategy code in OpenAlgo SDK boilerplate and writes to `hermes_strategies/{session_id}/strategy.py`. |
+| `export_to_openalgo(code, deploy)` | Exports locally AND pushes a new strategy entry to OpenAlgo via the **Strategy Creation API** if `deploy=True`. |
+
+> [!WARNING]
+> The `_sandbox_execute()` method uses Python's `exec()` with a restricted `__builtins__` dictionary. While this prevents easy escapes, it is **not a full sandbox**. Do not run Hermes with access to production systems without additional container-level isolation.
+
+---
+
+### `agent/llm_router.py` — `HermesLLM`
+
+Routes strategy generation prompts to the configured LLM provider.
+
+**Supported Providers:**
+
+| Provider | Config | Model Example |
+|---|---|---|
+| `openrouter` | Set `OPENROUTER_API_KEY` | `anthropic/claude-3-5-sonnet` |
+| `local` | Set `LOCAL_API_BASE` (Ollama) | `gemma:4b` |
+
+**Key behaviour:**
+- `api_base` is stored per-instance (not globally mutated), so multiple `HermesLLM` instances can coexist safely.
+- LLM output is automatically stripped of markdown code fences (` ```python `) before use.
+- Temperature is fixed at `0.2` for deterministic code generation.
+- **Local Fallback**: Supports automatic fallback to a local Ollama instance if the primary cloud model fails (enabled via `.env` or UI).
+
+---
+
+### `agent/memory.py` — `HermesMemory`
+
+Manages long-term context and reusable skills without ballooning the LLM context window.
+
+**Two storage systems:**
+
+| System | Directory | Purpose |
+|---|---|---|
+| Wiki Vault | `hermes_wiki/` | Markdown files storing lessons, successes, failures |
+| Market Insights | `hermes_wiki/MARKET_INSIGHTS.md` | MiroFish grounding: Persistent relationships/correlations |
+| Skills Vault | `skills/` | Reusable Python scripts for common operations |
+
+| Method | Description |
+|---|---|
+| `save_wiki_entry(topic, content)` | Saves or appends a learning to a markdown file. Filename truncated to 200 chars. |
+| `retrieve_wiki_context(keywords)` | Naive keyword-based RAG — scans all wiki files, returns matching content (capped at 1500 chars per file). |
+| `generate_skill(skill_name, code, description)` | Saves a Python snippet as a reusable skill script. |
+| `list_available_skills()` | Returns a formatted string listing all `.py` files in `skills/`. |
+
+> [!TIP]
+> The wiki is auto-populated by the agent during runs. After a few research sessions, `hermes_wiki/` will build up a rich knowledge base of what strategies have worked and failed, improving future LLM iterations automatically.
+
+---
+
+### `agent/registry.py` — `HermesRegistry`
+
+SQLite-backed persistence for every iteration of the agent loop.
+
+**Database:** `registry.sqlite` (created automatically in the working directory; ignored by git).
+
+**Tables:**
+
+| Table | Description |
+|---|---|
+| `strategy_iterations` | Logs every LLM iteration: session ID, strategy concept, code, metrics JSON, failures, goals met flag |
+| `generated_skills` | Index of all auto-generated skill scripts |
+
+| Method | Description |
+|---|---|
+| `log_iteration(...)` | Inserts a new row for each backtesting attempt. |
+| `get_best_iteration(session_id)` | Fetches the iteration with the highest ROI for a given session. |
+
+---
+
+### `agent/templates/base_straddle.py`
+
+A boilerplate template for writing new strategies that plug directly into the `HermesBacktester`. All strategies must implement an `evaluate(df, params)` function returning `(entries, exits, short_entries, short_exits)` as boolean Pandas Series.
+
+## Security Model
+
+The agent's security model has two layers:
+
+1. **Execution Sandbox** (`_sandbox_execute`): LLM code runs inside `exec()` with a whitelist of safe builtins only (`range`, `len`, `min`, `max`, `print`, etc.) and access to `pandas` and `numpy`. OS-level operations are blocked.
+
+2. **Export Gate** (`_sanitize_code`): Before writing a winning strategy to disk, a regex-based static analysis pass scans for 14 banned patterns including `import os`, `import subprocess`, `eval()`, `open()`, and `__import__()`. Any violation blocks the export.
+
+## Next Steps
+See [05_backtesting_guide.md](./05_backtesting_guide.md) to learn how the backtesting engines work.
+
+
+=== docs/05_backtesting_guide.md ===
+# Backtesting Guide
+
+Hermes has two backtesting engines for different use cases. Understanding when to use each is important for getting meaningful results.
+
+## Engine 1: `backtester/engine.py` — `HermesBacktester` (AI Agent Engine)
+
+This is the **primary engine** used by the AI agent loop. It is powered by **vectorbt** and is designed for high-speed, automated evaluation of boolean signal series.
+
+### How It Works
+
+The AI agent generates an `evaluate(df, params)` function that returns four boolean Pandas Series:
+- `entries` — where to go long
+- `exits` — where to exit longs
+- `short_entries` — where to go short  
+- `short_exits` — where to exit shorts
+
+These signals are passed into `HermesBacktester.evaluate_signals()`, which runs a full portfolio simulation.
+
+### Default Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `initial_capital` | `100,000` | Starting capital in INR |
+| `fees` | `0.001` (0.1%) | Brokerage + exchange fees per trade |
+| `slippage` | `0.001` (0.1%) | Slippage per trade |
+
+### Returned Metrics
+
+```python
+metrics = {
+    "Total_Return_Pct": float,   # Total return as percentage
+    "Max_Drawdown_Pct": float,   # Maximum drawdown as percentage (absolute value)
+    "Win_Rate_Pct": float,       # Win rate as percentage
+    "Sharpe_Ratio": float,       # Sharpe ratio
+    "Total_Trades": int,         # Number of trades taken
+    "Profit_Factor": float       # Gross profit / Gross loss
+}
+```
+
+> [!NOTE]
+> All `NaN` and `Inf` values in metrics are replaced with `0.0` before being passed to the LLM or logged to the registry, preventing JSON serialization errors.
+
+### Goal Checking
+
+`check_goals(metrics, config)` evaluates whether the strategy meets the user's targets. The `config` dict from the Streamlit UI can contain:
+
+| Key | Description |
+|---|---|
+| `target_roi` | Minimum Total Return (%) required |
+| `max_drawdown` | Maximum acceptable drawdown (%) |
+| `min_win_rate` | Minimum win rate (%) required |
+
+---
+
+## Engine 2: `backtester/swing_backtester.py` — `SimpleBacktester` (Manual Engine)
+
+This is a simpler, **event-driven backtester** designed for manual strategy research and prototyping. Unlike the vectorbt engine, it processes one day at a time, making it easier to debug and understand trade logic.
+
+### How It Works
+
+1. Iterates over historical data day by day (after a lookback window of 50 bars).
+2. Each day, it feeds a rolling 50-bar window to the strategy's `analyze(data)` method.
+3. If a signal is generated and no position is open, it opens a trade.
+4. Each subsequent day checks if the stop-loss or target has been hit.
+
+### Position Sizing
+
+Each trade uses **10% of total current capital** (simplified fixed-fractional sizing). For production use, this should be replaced with a volatility-adjusted position sizer (e.g., ATR-based).
+
+### Usage Example
+
+```python
+from backtester.swing_backtester import SimpleBacktester
+from hermes_strategies.trend_momentum import TrendMomentumStrategy
+import vectorbt as vbt
+
+# Fetch data
+data = vbt.YFData.download("RELIANCE.NS", period="2y").get()
+
+# Run the backtest
+strat = TrendMomentumStrategy()
+bt = SimpleBacktester(data, strat, initial_capital=100000)
+bt.run()
+```
+
+**Sample Output:**
+```
+Starting backtest with 100000 capital...
+[2023-01-15] OPEN LONG at 2450.00 | Target: 2744.00 | SL: 2328.00
+[2023-02-02] CLOSE LONG at 2744.00 (Target Hit) | PnL: 5880.00 (12.00%)
+
+--- BACKTEST SUMMARY ---
+Final Capital: 115234.50
+Total Return: 15.23%
+Total Trades: 8
+Win Rate: 62.50%
+Average PnL per trade: 1904.31
+```
+
+### Run from CLI
+```bash
+source .venv/bin/activate
+python backtester/swing_backtester.py
+```
+
+---
+
+## Choosing the Right Engine
+
+| Use Case | Engine |
+|---|---|
+| AI agent strategy generation and iteration | `HermesBacktester` (engine.py) |
+| Manual strategy research and debugging | `SimpleBacktester` (swing_backtester.py) |
+| Intraday / FNO strategies with minute data | `HermesBacktester` (set `freq="1m"`) |
+| Swing / positional strategies with daily data | `SimpleBacktester` or `HermesBacktester` (set `freq="1d"`) |
+
+## Next Steps
+See [06_security_model.md](./06_security_model.md) for a full breakdown of how the platform keeps LLM-generated code safe.
+
+
+=== docs/swing_strategies_guide.md ===
+# Hermes Swing Strategies Guide
+
+This guide explains how to use the pre-built swing trading strategies in the Hermes Research Platform. These strategies are specifically tuned for multi-day/multi-week positional trading.
+
+## Available Strategies
+
+All strategies are located in the `hermes_strategies/` directory. They all share a common interface: the `analyze(data)` method.
+
+### 1. Trend Momentum Strategy (`trend_momentum.py`)
+- **Logic:** Waits for the 20-day SMA to cross above the 50-day SMA (uptrend), RSI > 50 (momentum), and MACD rising. Ensures strong conviction before entry.
+- **Swing Tuning:** 12% target, stop-loss at the 20-day low (minimum 5% below entry).
+- **Data Required:** `close` — at least **50 daily closing prices** as a list or NumPy array.
+- **Dependencies:** `TA-Lib` (C library + Python package)
+
+### 2. Mean Reversion Strategy (`mean_reversion.py`)
+- **Logic:** Uses Bollinger Bands (20, 2) to find price extremes. Entry when price drops below the lower band and RSI < 35. Target is the middle band (mean reversion).
+- **Swing Tuning:** 6% stop-loss, target is the 20-day SMA middle band.
+- **Data Required:** `close` — at least **20 daily closing prices** as a list or NumPy array.
+- **Dependencies:** `TA-Lib` (C library + Python package)
+
+### 3. Delivery Analysis Strategy (`delivery_analysis.py`)
+- **Logic:** Detects institutional accumulation via delivery volume spikes. Entry when delivery % > 40 and the 3-day average ratio > 1.5 (well above normal).
+- **Swing Tuning:** 15% target, 8% stop-loss, valid signal for 5 trading days.
+- **Data Required:** `delivery_pct`, `delivery_3day_avg`, `close` — these must be fetched from NSE bhavcopy or a similar delivery data source.
+- **Dependencies:** None (pure Python)
+
+## Input Data Format
+
+All `analyze(data)` methods accept a Python dictionary:
+
+```python
+# For Trend Momentum and Mean Reversion:
+data = {
+    'close': [150.2, 151.5, 149.8, ...]  # list or np.ndarray
+}
+
+# For Delivery Analysis:
+data = {
+    'delivery_pct': 45.2,          # float: today's delivery percentage
+    'delivery_3day_avg': 1.8,      # float: ratio of today's delivery to 3-day avg
+    'close': 2450.0                # float: today's closing price
+}
+```
+
+## How to Use Them
+
+### 1. Live Screening
+```python
+from hermes_strategies.trend_momentum import TrendMomentumStrategy
+
+data_feed = {'close': [150.2, 151.5, 149.8, ...]}  # 50+ values
+
+strategy = TrendMomentumStrategy()
+signal = strategy.analyze(data_feed)
+
+if signal:
+    print(f"Found {signal['direction']} setup!")
+    print(f"Entry: {signal['entry']}, Target: {signal['target']}, SL: {signal['sl']}")
+    print(f"Score: {signal['score']}/10, Valid for: {signal.get('validity_days', 'N/A')} days")
+```
+
+### Signal Output Format
+
+All strategies return either `None` (no setup) or a dictionary:
+
+| Key | Type | Description |
+|---|---|---|
+| `entry` | `float` | Suggested entry price |
+| `sl` | `float` | Stop-loss price |
+| `target` | `float` | Profit target price |
+| `direction` | `str` | `'long'` or `'short'` |
+| `score` | `int` | Signal strength 1–10 |
+| `type` | `str` | Strategy identifier |
+| `timeframe` | `str` | `'swing'` or `'positional'` |
+| `validity_days` | `int` | Days this signal is considered valid (delivery strategy only) |
+
+### 2. Backtesting
+We have provided a simple, event-driven backtesting engine in `backtester/swing_backtester.py`. This script simulates daily screening and manages position stop-losses and targets.
+
+To run a backtest on historical data:
+```bash
+# Make sure your environment is activated
+source .venv/bin/activate
+
+# Run the backtester
+python backtester/swing_backtester.py
+```
+
+For a full explanation of both backtesting engines, see [05_backtesting_guide.md](./05_backtesting_guide.md).
+
+## Adding a New Strategy
+
+1. Create a new file in `hermes_strategies/` (e.g., `vwap_bounce.py`).
+2. Implement a class with an `analyze(data: dict) -> Optional[dict]` method.
+3. Return a signal dict matching the format above, or `None` if no setup.
+4. Import and test it in `backtester/swing_backtester.py`.
+
+> [!NOTE]
+> When the AI agent auto-generates and exports a strategy, it goes through a **security gate** that checks for dangerous code patterns before writing the file to disk. See [06_security_model.md](./06_security_model.md) for details.
+
+
+
+=== hermes_wiki/Session_SBIN_1776706128_iteration_2_failure.md ===
+
+## Iteration_2_FAILURE (Session: Session_SBIN_1776706128)
+ROI: 2.98%
+DD: -7.10%
+Concept: Dual Moving Average Crossover with Volatility Filter
+Failures: ['ROI (2.98%) below target (5.0%)', 'Drawdown (7.10%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Dual Moving Average Crossover with Volatility Filter
+    fast_ma = get_ma(df['close'], window=params.get('fast_ma', 10))
+    slow_ma = get_ma(df['close'], window=params.get('slow_ma', 30))
+    atr = get_atr(df['high'], df['low'], df['close'], window=params.get('atr_window', 14))
+    
+    # Entry: Fast MA crosses above slow MA with sufficient volatility
+    entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1)) & (atr > params.get('min_atr', 0.5))
+    
+    # Exit: Fast MA crosses below slow MA or ATR drops below threshold
+    exits = (fast_ma < slow_ma) | (atr < params.get('min_atr', 0.5))
+    
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "fast_ma": range(5, 20, 3),
+    "slow_ma": range(20, 50, 5),
+    "atr_window": range(10, 20, 2),
+    "min_atr": [0.3, 0.5, 0.7, 0.9]
+}
+```
+
+
+=== hermes_wiki/Session_SBIN_1776705731_iteration_1_failure.md ===
+
+## Iteration_1_FAILURE (Session: Session_SBIN_1776705731)
+ROI: 1.03%
+DD: -6.82%
+Concept: Mean-reversion RSI strategy with dynamic thresholds
+Failures: ['ROI (1.03%) below target (5.0%)', 'Drawdown (6.82%) exceeds max (5.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Mean-reversion RSI strategy with dynamic thresholds
+    rsi_window = params.get('rsi_window', 14)
+    rsi = run_indicator('RSI', df['close'], window=rsi_window)
+    entries = (rsi < params.get('rsi_lower', 25)) & (rsi.shift(1) >= params.get('rsi_lower', 25))
+    exits = (rsi > params.get('rsi_upper', 75)) & (rsi.shift(1) <= params.get('rsi_upper', 75))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "rsi_window": range(10, 30, 2),
+    "rsi_lower": range(20, 40, 5),
+    "rsi_upper": range(60, 80, 5)
+}
+```
+
+
+=== hermes_wiki/Session_TRENT_1776706302_iteration_2_failure.md ===
+
+## Iteration_2_FAILURE (Session: Session_TRENT_1776706302)
+ROI: 6.46%
+DD: -8.73%
+Concept: Bollinger Band breakout with RSI confirmation and volume filter
+Failures: ['Drawdown (8.73%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volume filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (df['volume'] < params.get('min_volume', 1000))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+```
+
+
+=== hermes_wiki/Session_TRENT_1776706302_iteration_1_failure.md ===
+
+## Iteration_1_FAILURE (Session: Session_TRENT_1776706302)
+ROI: -13.90%
+DD: -14.08%
+Concept: MACD crossover with volume confirmation
+Failures: ['ROI (-13.90%) below target (5.0%)', 'Drawdown (14.08%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: MACD crossover with volume confirmation
+    macd = get_macd(df['close'], fast=params.get('fast', 12), slow=params.get('slow', 26), signal=params.get('signal', 9))
+    entries = (macd.macd > macd.signal) & (macd.macd.shift(1) <= macd.signal.shift(1)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (macd.macd < macd.signal) | (macd.macd.shift(1) >= macd.signal.shift(1))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "fast": range(8, 16, 2),
+    "slow": range(20, 30, 2),
+    "signal": range(7, 13, 2),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+```
+
+
+=== hermes_wiki/Session_TRENT_1776707227_iteration_1_success.md ===
+
+## Iteration_1_SUCCESS (Session: Session_TRENT_1776707227)
+ROI: 11.13%
+DD: -4.76%
+Concept: Bollinger Band breakout with RSI confirmation and volume filter
+Failures: []
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volume filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (df['volume'] < params.get('min_volume', 1000))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+```
+
+
+=== hermes_wiki/Session_SBIN_1776706128_iteration_3_failure.md ===
+
+## Iteration_3_FAILURE (Session: Session_SBIN_1776706128)
+ROI: 4.09%
+DD: -6.59%
+Concept: Bollinger Band breakout with RSI confirmation and volatility filter
+Failures: ['ROI (4.09%) below target (5.0%)', 'Drawdown (6.59%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volatility filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    atr = get_atr(df['high'], df['low'], df['close'], window=params.get('atr_window', 14))
+    
+    # Entry: Price breaks above upper band with strong momentum and sufficient volatility
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (atr > params.get('min_atr', 0.5))
+    
+    # Exit: Price breaks below lower band, RSI shows weakness, or volatility drops
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (atr < params.get('min_atr', 0.5))
+    
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "atr_window": range(10, 20, 2),
+    "min_atr": [0.3, 0.5, 0.7, 0.9]
+}
+```
+
+
+=== hermes_wiki/MARKET_INSIGHTS.md ===
+# Market Insights (MiroFish Grounding)
+
+Persistent relationships and behavioral patterns.
+
+- **Insight**: DIXON -> Correlated -> Consumer Electronics
+  - *Evidence*: Sector analysis shows strong coupling.
+  - *Logged*: DIXON -> Correlated -> Consumer Electronics
+
+- **Insight**: DIXON -> Correlated -> Consumer Electronics
+  - *Evidence*: Sector analysis shows strong coupling.
+  - *Logged*: DIXON -> Correlated -> Consumer Electronics
+
+- **Insight**: DIXON -> Correlated -> Consumer Electronics
+  - *Evidence*: Sector analysis shows strong coupling.
+  - *Logged*: DIXON -> Correlated -> Consumer Electronics
+
+- **Insight**: DIXON -> Correlated -> Consumer Electronics
+  - *Evidence*: Sector analysis shows strong coupling.
+  - *Logged*: DIXON -> Correlated -> Consumer Electronics
+
+- **Insight**: Bollinger Band breakout with RSI confirmation and volume filter -> Robust in stressed regimes
+  - *Evidence*: Achieved 18.71% ROI with 100.0% robustness on Session_TRENT_1776706556
+  - *Logged*: Bollinger Band breakout with RSI confirmation and volume filter -> Robust in stressed regimes
+
+- **Insight**: Bollinger Band breakout with RSI confirmation and volume filter -> Robust in stressed regimes
+  - *Evidence*: Achieved 11.13% ROI with 100.0% robustness on Session_TRENT_1776707227
+  - *Logged*: Bollinger Band breakout with RSI confirmation and volume filter -> Robust in stressed regimes
+
+
+=== hermes_wiki/INDEX.md ===
+# Hermes Knowledge Index
+
+This vault contains learnings about market behavior and API structures.
+- [[Session_SBIN_1776705731_iteration_1_failure.md]] - Iteration_1_FAILURE (Session_SBIN_1776705731)
+- [[Session_SBIN_1776705731_iteration_2_success.md]] - Iteration_2_SUCCESS (Session_SBIN_1776705731)
+- [[Session_SBIN_1776706128_iteration_1_failure.md]] - Iteration_1_FAILURE (Session_SBIN_1776706128)
+- [[Session_SBIN_1776706128_iteration_2_failure.md]] - Iteration_2_FAILURE (Session_SBIN_1776706128)
+- [[Session_SBIN_1776706128_iteration_3_failure.md]] - Iteration_3_FAILURE (Session_SBIN_1776706128)
+- [[Session_TRENT_1776706302_iteration_1_failure.md]] - Iteration_1_FAILURE (Session_TRENT_1776706302)
+- [[Session_TRENT_1776706302_iteration_2_failure.md]] - Iteration_2_FAILURE (Session_TRENT_1776706302)
+- [[Session_TRENT_1776706302_iteration_3_failure.md]] - Iteration_3_FAILURE (Session_TRENT_1776706302)
+- [[Session_TRENT_1776706556_iteration_1_success.md]] - Iteration_1_SUCCESS (Session_TRENT_1776706556)
+- [[Session_TRENT_1776707227_iteration_1_success.md]] - Iteration_1_SUCCESS (Session_TRENT_1776707227)
+
+
+=== hermes_wiki/Session_TRENT_1776706302_iteration_3_failure.md ===
+
+## Iteration_3_FAILURE (Session: Session_TRENT_1776706302)
+ROI: -9.23%
+DD: -12.04%
+Concept: Dual Moving Average Crossover with RSI filter
+Failures: ['ROI (-9.23%) below target (5.0%)', 'Drawdown (12.04%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Dual Moving Average Crossover with RSI filter
+    fast_ma = get_ma(df['close'], window=params.get('fast_ma', 10))
+    slow_ma = get_ma(df['close'], window=params.get('slow_ma', 30))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+
+    # Entry: Fast MA crosses above slow MA with RSI confirmation
+    entries = (fast_ma > slow_ma) & (fast_ma.shift(1) <= slow_ma.shift(1)) & (rsi > params.get('rsi_entry', 50))
+
+    # Exit: Fast MA crosses below slow MA or RSI shows weakness
+    exits = (fast_ma < slow_ma) | (rsi < params.get('rsi_exit', 30))
+
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "fast_ma": range(5, 20, 3),
+    "slow_ma": range(20, 50, 5),
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5)
+}
+```
+
+
+=== hermes_wiki/Session_SBIN_1776705731_iteration_2_success.md ===
+
+## Iteration_2_SUCCESS (Session: Session_SBIN_1776705731)
+ROI: 7.49%
+DD: -3.74%
+Concept: Bollinger Band breakout with RSI confirmation
+Failures: []
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    
+    # Entry: Price breaks above upper band and RSI confirms momentum
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50))
+    
+    # Exit: Price breaks below lower band or RSI shows weakness
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30))
+    
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5)
+}
+```
+
+
+=== hermes_wiki/Session_SBIN_1776706128_iteration_1_failure.md ===
+
+## Iteration_1_FAILURE (Session: Session_SBIN_1776706128)
+ROI: 4.09%
+DD: -6.59%
+Concept: Bollinger Band breakout with RSI confirmation
+Failures: ['ROI (4.09%) below target (5.0%)', 'Drawdown (6.59%) exceeds max (2.0%)']
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+
+    # Entry: Price breaks above upper band and RSI confirms momentum
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50))
+
+    # Exit: Price breaks below lower band or RSI shows weakness
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30))
+
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5)
+}
+```
+
+
+=== hermes_wiki/Session_TRENT_1776706556_iteration_1_success.md ===
+
+## Iteration_1_SUCCESS (Session: Session_TRENT_1776706556)
+ROI: 18.71%
+DD: -4.51%
+Concept: Bollinger Band breakout with RSI confirmation and volume filter
+Failures: []
+
+Code:
+```python
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volume filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (df['volume'] < params.get('min_volume', 1000))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+```
+
+

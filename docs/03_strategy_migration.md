@@ -57,4 +57,33 @@ The AI Agents (in the `agent/` directory) are designed to help you write, test, 
 - **Backtester**: (`backtester/`) Once a strategy is ported, use the backtester module to validate it against the OpenAlgo historical data before deploying it or converting it to a Streak.tech scanner.
 
 ## Summary
+
+### Audit Persistence with SQLite/DuckDB
+
+The platform now stores every generated iteration (code, metrics, and markdown log) in a compact database (`hermes.db`) instead of the sprawling `hermes_wiki/` folder. This provides:
+
+- **Full audit trail** – code snippets, back‑test metrics, and the original markdown are retained.
+- **Reduced repository size** – a single `hermes.db` file (few KB) replaces dozens of markdown files.
+- **Easy querying** – use SQL (`SELECT * FROM strategies WHERE session_id = …`) or the helper functions `save_iteration`, `get_history` in `agent/db.py`.
+- **Debug friendliness** – you can inspect per‑iteration details directly from the DB without scanning the filesystem.
+
+**How it works**
+
+1. `agent/db.py` creates the `strategies` table on start‑up (`init_db()`).
+2. `HermesRunner` calls `save_iteration(...)` after each iteration, passing the markdown content that would have been written to the wiki.
+3. A final failure entry is also stored if the loop exhausts the maximum iterations.
+4. UI components retrieve history via `get_history(session_id)`.
+
+**Tip:** To view the audit data locally, run:
+
+```bash
+python3 - <<'PY'
+import duckdb, json
+conn = duckdb.connect('hermes.db')
+print(conn.execute("SELECT session_id, iteration, success FROM strategies ORDER BY session_id, iteration").fetchdf())
+PY
+```
+
+For production deployments you may choose to move `hermes.db` to persistent storage (e.g., cloud bucket) and point `DB_PATH` in `agent/db.py` accordingly.
+
 By keeping the old code in `temp_repos/` and the new, clean code in `hermes_strategies/`, you maintain a clear separation between legacy scripts and the new AI-driven architecture.

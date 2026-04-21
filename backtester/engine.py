@@ -106,8 +106,11 @@ class HermesBacktester:
         
         if regime == "volatile":
             # Increase noise/volatility by 3x
-            noise = np.random.normal(0, df['close'].std() * 0.05, len(df))
-            synth['close'] = synth['close'] + noise
+            # Original volatility noise level (may cause fragile scores)
+            noise = pd.Series(np.random.normal(0, df['close'].std() * 0.05, len(df)), index=df.index)
+            # Align noise with synth index to avoid length mismatches
+            noise = noise.reindex(synth.index).fillna(0)
+            synth['close'] = synth['close'].to_numpy() + noise.to_numpy()
         elif regime == "crash":
             # Inject a 10% flash crash in the middle
             mid = len(df) // 2
@@ -127,22 +130,32 @@ class HermesBacktester:
         regimes = ["volatile", "crash", "trending"]
         pass_count = 0
         
+        regime_results = {}
         for r in regimes:
             synth_df = self.generate_regime_data(df, regime=r)
             try:
                 entries, exits, short_entries, short_exits = eval_func(synth_df, params)
                 metrics, _ = self.evaluate_signals(
-                    df=synth_df, 
-                    entries=entries, 
-                    exits=exits, 
-                    short_entries=short_entries, 
+                    df=synth_df,
+                    entries=entries,
+                    exits=exits,
+                    short_entries=short_entries,
                     short_exits=short_exits
                 )
-                
-                # If it doesn't blow up (ROI > -50%), we count it as a partial pass
-                if metrics.get("Total_Return_Pct", -100) > -50:
+                # Determine if this regime is passed (ROI > -50%)
+                passed = metrics.get("Total_Return_Pct", -100) > -50
+                if passed:
                     pass_count += 1
-            except:
+                # Store detailed result for later diagnostics
+                regime_results[r] = {
+                    "roi": metrics.get("Total_Return_Pct", None),
+                    "passed": passed
+                }
+            except Exception as e:
+                # Record failure reason for this regime
+                regime_results[r] = {"error": str(e), "passed": False}
                 continue
-                
-        return (pass_count / len(regimes)) * 100
+        
+        robustness_score = (pass_count / len(regimes)) * 100
+        # Attach detailed per‑regime info for callers
+        return robustness_score, regime_results

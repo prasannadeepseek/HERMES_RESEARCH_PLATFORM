@@ -1,0 +1,637 @@
+{
+  "directories": [
+    "agent",
+    "agent/templates",
+    "backtester",
+    "data",
+    "data_pipeline",
+    "data_pipeline/sources",
+    "docs",
+    "hermes_strategies",
+    "hermes_strategies/Session_DIXON_1776700748",
+    "hermes_strategies/Session_SBIN_1776704978",
+    "hermes_strategies/Session_SBIN_1776705731",
+    "hermes_strategies/Session_TRENT_1776706556",
+    "hermes_strategies/Session_TRENT_1776707227",
+    "hermes_wiki",
+    "implemention_plans",
+    "skills"
+  ],
+  "classes": [
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "OpenAlgoClient",
+      "methods": [
+        "__init__",
+        "_post",
+        "_get",
+        "ping",
+        "get_historical_data",
+        "get_quotes",
+        "place_order",
+        "place_smart_order",
+        "cancel_order",
+        "close_all_positions",
+        "get_positions",
+        "get_orderbook",
+        "get_funds",
+        "create_strategy"
+      ],
+      "line_number": 20
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "OpenAlgoDataConnector",
+      "methods": [],
+      "line_number": 360
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/trend_momentum.py",
+      "name": "TrendMomentumStrategy",
+      "methods": [
+        "analyze"
+      ],
+      "line_number": 5
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/delivery_analysis.py",
+      "name": "DeliveryAnalysisStrategy",
+      "methods": [
+        "analyze"
+      ],
+      "line_number": 3
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/mean_reversion.py",
+      "name": "MeanReversionStrategy",
+      "methods": [
+        "analyze"
+      ],
+      "line_number": 5
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "HermesRunner",
+      "methods": [
+        "__init__",
+        "execute_research_loop",
+        "_sandbox_execute",
+        "_sanitize_code",
+        "_safe_session_id",
+        "_export_strategy",
+        "export_to_openalgo"
+      ],
+      "line_number": 16
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "HermesMemory",
+      "methods": [
+        "__init__",
+        "save_wiki_entry",
+        "save_market_insight",
+        "retrieve_wiki_context",
+        "generate_skill",
+        "list_available_skills"
+      ],
+      "line_number": 4
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/llm_router.py",
+      "name": "HermesLLM",
+      "methods": [
+        "__init__",
+        "generate_strategy_code",
+        "_call_llm"
+      ],
+      "line_number": 4
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "HermesRegistry",
+      "methods": [
+        "__init__",
+        "_init_db",
+        "log_iteration",
+        "get_best_iteration",
+        "get_session_history"
+      ],
+      "line_number": 6
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/optimizer.py",
+      "name": "HermesOptimizer",
+      "methods": [
+        "__init__",
+        "optimize"
+      ],
+      "line_number": 5
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "BB",
+      "methods": [],
+      "line_number": 28
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "M",
+      "methods": [],
+      "line_number": 43
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "SimpleBacktester",
+      "methods": [
+        "__init__",
+        "run",
+        "_open_position",
+        "_close_position",
+        "print_summary"
+      ],
+      "line_number": 14
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "HermesBacktester",
+      "methods": [
+        "__init__",
+        "evaluate_signals",
+        "check_goals",
+        "generate_regime_data",
+        "run_oasis_stress_test"
+      ],
+      "line_number": 5
+    }
+  ],
+  "functions": [
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "should_exclude_dir",
+      "signature": "def should_exclude_dir(dirpath):",
+      "line_number": 39
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "get_python_classes_functions",
+      "signature": "def get_python_classes_functions(filepath):",
+      "line_number": 44
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "get_generic_classes_functions",
+      "signature": "def get_generic_classes_functions(filepath, ext):",
+      "line_number": 81
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "scan_repo",
+      "signature": "def scan_repo(root_dir):",
+      "line_number": 168
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "collect_markdown_files",
+      "signature": "def collect_markdown_files(root_dir):",
+      "line_number": 209
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "collect_code_files",
+      "signature": "def collect_code_files(root_dir):",
+      "line_number": 229
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/generate_repo_docs.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 250
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/research_dixon.py",
+      "name": "run_dixon_research",
+      "signature": "def run_dixon_research():",
+      "line_number": 10
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "__init__",
+      "signature": "def __init__(self, host, api_key):",
+      "line_number": 36
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "_post",
+      "signature": "def _post(self, endpoint, payload):",
+      "line_number": 44
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "_get",
+      "signature": "def _get(self, endpoint, params):",
+      "line_number": 60
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "ping",
+      "signature": "def ping(self):",
+      "line_number": 82
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "get_historical_data",
+      "signature": "def get_historical_data(self, symbol, exchange, interval, start_date, end_date):",
+      "line_number": 97
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "get_quotes",
+      "signature": "def get_quotes(self, symbol, exchange):",
+      "line_number": 157
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "place_order",
+      "signature": "def place_order(self, symbol, exchange, action, quantity, product, price_type, price, trigger_price, disclosed_quantity, strategy):",
+      "line_number": 177
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "place_smart_order",
+      "signature": "def place_smart_order(self, symbol, exchange, action, quantity, position_size, product, price_type, price, strategy):",
+      "line_number": 229
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "cancel_order",
+      "signature": "def cancel_order(self, order_id, strategy):",
+      "line_number": 266
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "close_all_positions",
+      "signature": "def close_all_positions(self, strategy):",
+      "line_number": 273
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "get_positions",
+      "signature": "def get_positions(self):",
+      "line_number": 284
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "get_orderbook",
+      "signature": "def get_orderbook(self):",
+      "line_number": 298
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "get_funds",
+      "signature": "def get_funds(self):",
+      "line_number": 312
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/data_pipeline/openalgo_connector.py",
+      "name": "create_strategy",
+      "signature": "def create_strategy(self, name, platform, strategy_type, trading_mode):",
+      "line_number": 330
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/trend_momentum.py",
+      "name": "analyze",
+      "signature": "def analyze(self, data):",
+      "line_number": 12
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/delivery_analysis.py",
+      "name": "analyze",
+      "signature": "def analyze(self, data):",
+      "line_number": 9
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/mean_reversion.py",
+      "name": "analyze",
+      "signature": "def analyze(self, data):",
+      "line_number": 11
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_SBIN_1776704978/strategy.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_SBIN_1776704978/strategy.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 50
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_DIXON_1776700748/strategy.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_DIXON_1776700748/strategy.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 69
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_SBIN_1776705731/strategy.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_SBIN_1776705731/strategy.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 42
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_TRENT_1776707227/strategy.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_TRENT_1776707227/strategy.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 38
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_TRENT_1776706556/strategy.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/hermes_strategies/Session_TRENT_1776706556/strategy.py",
+      "name": "main",
+      "signature": "def main():",
+      "line_number": 38
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "__init__",
+      "signature": "def __init__(self, session_id, df, config, llm_config):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "execute_research_loop",
+      "signature": "def execute_research_loop(self, max_iterations, status_callback, auto_deploy):",
+      "line_number": 39
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "_sandbox_execute",
+      "signature": "def _sandbox_execute(self, code):",
+      "line_number": 173
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "_sanitize_code",
+      "signature": "def _sanitize_code(code):",
+      "line_number": 223
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "_safe_session_id",
+      "signature": "def _safe_session_id(session_id):",
+      "line_number": 252
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "_export_strategy",
+      "signature": "def _export_strategy(self, code):",
+      "line_number": 257
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "export_to_openalgo",
+      "signature": "def export_to_openalgo(self, code, deploy):",
+      "line_number": 314
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/runner.py",
+      "name": "update_status",
+      "signature": "def update_status(msg):",
+      "line_number": 43
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "__init__",
+      "signature": "def __init__(self, base_dir):",
+      "line_number": 9
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "save_wiki_entry",
+      "signature": "def save_wiki_entry(self, topic, content, session_id):",
+      "line_number": 28
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "save_market_insight",
+      "signature": "def save_market_insight(self, relationship, evidence):",
+      "line_number": 51
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "retrieve_wiki_context",
+      "signature": "def retrieve_wiki_context(self, keywords):",
+      "line_number": 61
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "generate_skill",
+      "signature": "def generate_skill(self, skill_name, python_code, description):",
+      "line_number": 87
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/memory.py",
+      "name": "list_available_skills",
+      "signature": "def list_available_skills(self):",
+      "line_number": 101
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/llm_router.py",
+      "name": "__init__",
+      "signature": "def __init__(self, model_name, api_base, api_key):",
+      "line_number": 9
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/llm_router.py",
+      "name": "generate_strategy_code",
+      "signature": "def generate_strategy_code(self, prompt, context, skills):",
+      "line_number": 15
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/llm_router.py",
+      "name": "_call_llm",
+      "signature": "def _call_llm(self, messages, model, api_base, api_key):",
+      "line_number": 88
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "__init__",
+      "signature": "def __init__(self, db_path):",
+      "line_number": 11
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "_init_db",
+      "signature": "def _init_db(self):",
+      "line_number": 15
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "log_iteration",
+      "signature": "def log_iteration(self, session_id, strategy_name, iteration_number, code_snippet, metrics, failures, goals_met, robustness_score):",
+      "line_number": 56
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "get_best_iteration",
+      "signature": "def get_best_iteration(self, session_id):",
+      "line_number": 83
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/registry.py",
+      "name": "get_session_history",
+      "signature": "def get_session_history(self, session_id):",
+      "line_number": 118
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/optimizer.py",
+      "name": "__init__",
+      "signature": "def __init__(self, backtester):",
+      "line_number": 10
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/optimizer.py",
+      "name": "optimize",
+      "signature": "def optimize(self, df, evaluate_func, param_ranges, target_config):",
+      "line_number": 13
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/agent/templates/base_straddle.py",
+      "name": "evaluate",
+      "signature": "def evaluate(df, params):",
+      "line_number": 8
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_ma",
+      "signature": "def get_ma(close, window):",
+      "line_number": 4
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_rsi",
+      "signature": "def get_rsi(close, window):",
+      "line_number": 8
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_bbands",
+      "signature": "def get_bbands(close, window, std):",
+      "line_number": 21
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_macd",
+      "signature": "def get_macd(close, fast, slow, signal):",
+      "line_number": 36
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_atr",
+      "signature": "def get_atr(high, low, close, window):",
+      "line_number": 49
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "get_adx",
+      "signature": "def get_adx(high, low, close, window):",
+      "line_number": 57
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/skills/vbt_utils.py",
+      "name": "run_indicator",
+      "signature": "def run_indicator(name, close):",
+      "line_number": 71
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "__init__",
+      "signature": "def __init__(self, data, strategy, initial_capital):",
+      "line_number": 19
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "run",
+      "signature": "def run(self):",
+      "line_number": 32
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "_open_position",
+      "signature": "def _open_position(self, signal, date):",
+      "line_number": 75
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "_close_position",
+      "signature": "def _close_position(self, pos, exit_price, date, reason):",
+      "line_number": 93
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/swing_backtester.py",
+      "name": "print_summary",
+      "signature": "def print_summary(self):",
+      "line_number": 116
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "__init__",
+      "signature": "def __init__(self, initial_capital, fees, slippage):",
+      "line_number": 9
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "evaluate_signals",
+      "signature": "def evaluate_signals(self, df, entries, exits, short_entries, short_exits, freq):",
+      "line_number": 15
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "check_goals",
+      "signature": "def check_goals(self, metrics, config):",
+      "line_number": 71
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "generate_regime_data",
+      "signature": "def generate_regime_data(self, df, regime):",
+      "line_number": 100
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "run_oasis_stress_test",
+      "signature": "def run_oasis_stress_test(self, df, eval_func, params):",
+      "line_number": 122
+    },
+    {
+      "file": "/Users/prasanna/.gemini/antigravity/scratch/hermes_research_platform/backtester/engine.py",
+      "name": "to_scalar",
+      "signature": "def to_scalar(val):",
+      "line_number": 50
+    }
+  ]
+}

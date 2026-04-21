@@ -1,0 +1,2736 @@
+# File: test_vbt_syntax.py
+import vectorbt as vbt
+import pandas as pd
+import numpy as np
+
+# Create dummy data
+df = pd.DataFrame({"close": np.random.randn(100) + 100})
+
+try:
+    print("Testing BBANDS...")
+    # This is what the AI tried:
+    # bb = vbt.BBANDS.run(df['close'], length=20, std=2)
+    
+    # This is the likely correct version:
+    bb = vbt.BBANDS.run(df['close'], window=20, std=2)
+    print("BBANDS success!")
+except Exception as e:
+    print(f"BBANDS failed: {e}")
+
+try:
+    print("\nTesting MA...")
+    ma = vbt.MA.run(df['close'], window=20)
+    print("MA success!")
+except Exception as e:
+    print(f"MA failed: {e}")
+
+
+# File: test_connection.py
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+host = os.getenv("OPENALGO_HOST", "http://127.0.0.1:5001")
+api_key = os.getenv("OPENALGO_API_KEY", "")
+
+print(f"Testing connection to: {host}")
+print(f"Using API Key: {api_key[:5]}...{api_key[-5:] if len(api_key) > 10 else ''}")
+
+try:
+    # Test 1: Health Check
+    resp = requests.post(f"{host}/api/v1/funds", json={"apikey": api_key}, timeout=10)
+    print(f"Health Check Response: {resp.status_code}")
+    print(f"Health Check Data: {resp.json()}")
+
+    # Test 2: List available data for DIXON (5 minute)
+    payload = {
+        "symbol": "DIXON",
+        "exchange": "NSE",
+        "interval": "5m",
+        "start_date": "2024-01-01",
+        "end_date": "2026-12-31",
+        "apikey": api_key
+    }
+    resp = requests.post(f"{host}/api/v1/history", json=payload, timeout=10)
+    print(f"\nDIXON Data Request Response: {resp.status_code}")
+    print(f"DIXON Data Status: {resp.json().get('status')}")
+    print(f"DIXON Data Message: {resp.json().get('message')}")
+    
+    data_count = len(resp.json().get('data', []))
+    print(f"DIXON Data Rows Returned: {data_count}")
+
+except Exception as e:
+    print(f"Error during test: {e}")
+
+
+# File: __init__.py
+
+
+# File: generate_repo_docs.py
+#!/usr/bin/env python3
+"""
+Generate repo_structure.json and docs_bundle.txt for the Hermes research platform.
+"""
+
+import os
+import json
+import re
+import ast
+from typing import Dict, List, Any, Tuple
+
+# Directories to exclude from scanning
+EXCLUDE_DIRS = {
+    '.git', '__pycache__', 'node_modules', 'dist', '.claude',
+    '.idea', '.vscode', 'build', 'eggs', '.eggs', 'parts', 'bin',
+    'var', 'sdist', 'develop-eggs', '.installed.cfg', 'lib', 'lib64',
+    '.venv', 'venv', 'env', '.env', '.qodo',  # virtual environments and IDE-specific
+    'temp_repos'  # optional: exclude temp_repos if not needed
+}
+
+# File extensions we care about for code analysis
+CODE_EXTENSIONS = {
+    '.py': 'python',
+    '.js': 'javascript',
+    '.ts': 'typescript',
+    '.java': 'java',
+    '.cpp': 'cpp',
+    '.c': 'c',
+    '.h': 'c',
+    '.cs': 'csharp',
+    '.go': 'go',
+    '.rb': 'ruby',
+    '.php': 'php',
+    '.swift': 'swift',
+    '.kt': 'kotlin',
+    '.rs': 'rust',
+}
+
+def should_exclude_dir(dirpath: str) -> bool:
+    """Check if directory should be excluded based on its name."""
+    parts = dirpath.split(os.sep)
+    return any(part in EXCLUDE_DIRS for part in parts)
+
+def get_python_classes_functions(filepath: str) -> Tuple[List[Dict], List[Dict]]:
+    """Extract class and function definitions from a Python file using ast."""
+    classes = []
+    functions = []
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        tree = ast.parse(content)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                # Get class name and methods
+                methods = [n.name for n in node.body if isinstance(n, ast.FunctionDef)]
+                classes.append({
+                    'file': filepath,
+                    'name': node.name,
+                    'methods': methods,
+                    'line_number': node.lineno
+                })
+            elif isinstance(node, ast.FunctionDef):
+                # Get function signature (simplified)
+                # We'll reconstruct the signature from args
+                args = []
+                for arg in node.args.args:
+                    args.append(arg.arg)
+                # Handle defaults? skip for simplicity
+                args_str = ', '.join(args)
+                signature = f"def {node.name}({args_str}):"
+                functions.append({
+                    'file': filepath,
+                    'name': node.name,
+                    'signature': signature,
+                    'line_number': node.lineno
+                })
+    except Exception as e:
+        print(f"Warning: Could not parse {filepath}: {e}")
+    return classes, functions
+
+def get_generic_classes_functions(filepath: str, ext: str) -> Tuple[List[Dict], List[Dict]]:
+    """Extract class and function signatures using regex for non-Python files."""
+    classes = []
+    functions = []
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Warning: Could not read {filepath}: {e}")
+        return classes, functions
+
+    # Regex patterns (simplistic)
+    if ext in ['.js', '.ts']:
+        # Class: class MyClass { ... } or class MyClass extends Base {...}
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:extends\s+[^{]*)?\s*\{'
+        # Function: function myFunc(...) { ... } or const myFunc = (...) => {...} or myFunc(...) {...}
+        # We'll capture named functions and maybe arrow functions assigned to const/let/var
+        func_pattern = r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+        # Also match const/let/var arrow functions: const myFunc = (...) => {...}
+        # We'll do a simpler approach: look for = (params) =>
+        # But for brevity, we'll just do function keyword.
+    elif ext == '.java':
+        class_pattern = r'(?:public|private|protected)?\s*class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'(?:public|private|protected|static|\s)+[\w\<\>\[\]]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{'
+    elif ext in ['.cpp', '.c', '.h']:
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'(\w+\s+)+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{'
+    elif ext == '.cs':
+        class_pattern = r'(?:public|private|internal)?\s*class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'(?:public|private|protected|internal|static|\s)+[\w\<\>\[\]]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{'
+    elif ext == '.go':
+        class_pattern = r'type\s+([A-Za-z_][A-Za-z0-9_]*)\s*struct'
+        func_pattern = r'func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+    elif ext == '.rb':
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'def\s+([A-Za-z_][A-Za-z0-9_]*)'
+    elif ext == '.php':
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+    elif ext == '.swift':
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+    elif ext == '.kt':
+        class_pattern = r'class\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+    elif ext == '.rs':
+        class_pattern = r'struct\s+([A-Za-z_][A-Za-z0-9_]*)|enum\s+([A-Za-z_][A-Za-z0-9_]*)|trait\s+([A-Za-z_][A-Za-z0-9_]*)'
+        func_pattern = r'fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
+    else:
+        # Unknown extension, skip
+        return classes, functions
+
+    # Find classes
+    for match in re.finditer(class_pattern, content, re.MULTILINE):
+        # For rust, we have multiple groups; adjust
+        if ext == '.rs':
+            # match.group(1) struct, group(2) enum, group(3) trait
+            name = match.group(1) or match.group(2) or match.group(3)
+        else:
+            name = match.group(1)
+        classes.append({
+            'file': filepath,
+            'name': name,
+            'line_number': content[:match.start()].count('\n') + 1
+        })
+
+    # Find functions
+    for match in re.finditer(func_pattern, content, re.MULTILINE):
+        if ext == '.rs':
+            name = match.group(1)
+        else:
+            # Some patterns have multiple groups; assume last captured group is the function name
+            # We'll just take the last group
+            groups = match.groups()
+            name = groups[-1] if groups else ''
+        if name:
+            # Reconstruct signature approximated
+            signature = match.group(0)
+            functions.append({
+                'file': filepath,
+                'name': name,
+                'signature': signature.strip(),
+                'line_number': content[:match.start()].count('\n') + 1
+            })
+
+    return classes, functions
+
+def scan_repo(root_dir: str) -> Dict[str, Any]:
+    """Walk the repo and collect structure."""
+    all_dirs = set()
+    all_classes = []
+    all_functions = []
+
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Modify dirnames in-place to skip excluded dirs
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        if should_exclude_dir(dirpath):
+            # Skip this dir entirely (should already be filtered by dirnames)
+            continue
+
+        # Add directory relative to root
+        rel_dir = os.path.relpath(dirpath, root_dir)
+        if rel_dir != '.':
+            all_dirs.add(rel_dir)
+
+        for filename in filenames:
+            filepath = os.path.join(dirpath, filename)
+            ext = os.path.splitext(filename)[1].lower()
+
+            if ext == '.py':
+                classes, functions = get_python_classes_functions(filepath)
+            elif ext in CODE_EXTENSIONS:
+                classes, functions = get_generic_classes_functions(filepath, ext)
+            else:
+                # Not a code file we care about for class/function extraction
+                continue
+
+            all_classes.extend(classes)
+            all_functions.extend(functions)
+
+    # Convert sets to sorted lists for consistent output
+    result = {
+        'directories': sorted(list(all_dirs)),
+        'classes': all_classes,
+        'functions': all_functions
+    }
+    return result
+
+def collect_markdown_files(root_dir: str) -> List[Tuple[str, str]]:
+    """Find all .md files, return list of (rel_path, content)."""
+    md_files = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Exclude directories
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        if should_exclude_dir(dirpath):
+            continue
+        for filename in filenames:
+            if filename.lower().endswith('.md'):
+                filepath = os.path.join(dirpath, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    rel_path = os.path.relpath(filepath, root_dir)
+                    md_files.append((rel_path, content))
+                except Exception as e:
+                    print(f"Warning: Could not read {filepath}: {e}")
+    return md_files
+
+def collect_code_files(root_dir: str) -> List[Tuple[str, str]]:
+    """Find all code files (based on CODE_EXTENSIONS), return list of (rel_path, content)."""
+    code_files = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Exclude directories
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        if should_exclude_dir(dirpath):
+            continue
+        for filename in filenames:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in CODE_EXTENSIONS:
+                filepath = os.path.join(dirpath, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    rel_path = os.path.relpath(filepath, root_dir)
+                    code_files.append((rel_path, content))
+                except Exception as e:
+                    print(f"Warning: Could not read {filepath}: {e}")
+    return code_files
+
+def main():
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    print(f"Scanning repository at {repo_root}")
+
+    # Generate repo_structure.json
+    structure = scan_repo(repo_root)
+    struct_path = os.path.join(repo_root, 'repo_structure.json')
+    with open(struct_path, 'w', encoding='utf-8') as f:
+        json.dump(structure, f, indent=2)
+    print(f"Written {struct_path}")
+
+    # Generate docs_bundle.txt
+    md_files = collect_markdown_files(repo_root)
+    docs_path = os.path.join(repo_root, 'docs_bundle.txt')
+    with open(docs_path, 'w', encoding='utf-8') as f:
+        for rel_path, content in md_files:
+            f.write(f"=== {rel_path} ===\n")
+            f.write(content)
+            f.write("\n\n")
+    print(f"Written {docs_path} with {len(md_files)} markdown files")
+
+    # Generate consolidated_code.py (or .txt) containing all source code
+    code_files = collect_code_files(repo_root)
+    code_path = os.path.join(repo_root, 'consolidated_code.txt')
+    with open(code_path, 'w', encoding='utf-8') as f:
+        for rel_path, content in code_files:
+            f.write(f"# File: {rel_path}\n")
+            f.write(content)
+            f.write("\n\n")
+    print(f"Written {code_path} with {len(code_files)} code files")
+
+if __name__ == '__main__':
+    main()
+
+# File: app.py
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import time
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+from agent.registry import HermesRegistry
+from agent.memory import HermesMemory
+
+load_dotenv()
+
+st.set_page_config(page_title="Hermes AI Research Platform", page_icon="🦉", layout="wide")
+
+st.title("🦉 Hermes AI Research Platform")
+st.markdown("Automated algorithmic trading strategy generation and backtesting.")
+
+# Sidebar for configuration
+with st.sidebar:
+    st.header("🎯 Strategy Goals")
+    target_roi = st.number_input("Target ROI (%)", min_value=1.0, value=20.0, step=1.0)
+    max_dd = st.number_input("Max Drawdown (%)", min_value=1.0, value=5.0, step=0.5)
+    max_iterations = st.slider("Max Research Iterations", min_value=1, max_value=10, value=5)
+    auto_deploy = st.toggle("🚀 Auto-Deploy Success to OpenAlgo", value=True)
+
+    st.divider()
+    with st.expander("🔑 Advanced API Settings"):
+        st.subheader("LLM Configuration")
+        ui_model = st.text_input("Model Name", value=os.getenv("MODEL_NAME", "openrouter/anthropic/claude-3.5-sonnet"))
+        ui_api_base = st.text_input("API Base URL (Optional)", value=os.getenv("LLM_API_BASE", ""))
+        ui_api_key = st.text_input("API Key (Override)", type="password")
+        
+        st.divider()
+        st.subheader("🤖 Local Fallback")
+        enable_fallback = st.toggle("Enable Local LLM Fallback", value=os.getenv("ENABLE_LOCAL_FALLBACK", "false").lower() == "true")
+        if enable_fallback:
+            st.info("Hermes will try to use a local Ollama instance if the cloud API fails.")
+            os.environ["ENABLE_LOCAL_FALLBACK"] = "true"
+        else:
+            os.environ["ENABLE_LOCAL_FALLBACK"] = "false"
+        
+        st.subheader("Fallback Data (TrueData)")
+        td_user = st.text_input("TrueData Username", value=os.getenv("TRUEDATA_USERNAME", ""))
+        td_pass = st.text_input("TrueData Password", type="password")
+
+    st.divider()
+    st.subheader("🌐 MiroFish Grounding")
+    memory = HermesMemory()
+    if os.path.exists(memory.insights_file):
+        with open(memory.insights_file, "r") as f:
+            insights = f.read().split("\n")[-10:] # Show last 10 lines
+            st.caption("\n".join(insights))
+    else:
+        st.info("No grounding insights yet.")
+
+# Main layout
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("Agent Thought Process & Logs")
+    log_container = st.empty()
+    log_container.code("Waiting for instructions...\n\n- Hermes is idle.\n- MCP Server integration ready.\n- Vectorbt backtesting core ready.")
+
+with col2:
+    st.subheader("Data Source")
+    data_source = st.selectbox("Historical Data", ["OpenAlgo (DuckDB)", "Yahoo Finance (Sandbox)"], index=0)
+    symbol = st.text_input("Symbol", value="DIXON")
+    exchange = st.selectbox("Exchange", ["NSE", "NFO", "BSE", "MCX", "CDS"], index=0)
+    interval = st.selectbox("Interval", ["1d", "1minute", "5minute", "15minute", "30minute", "1hour"], index=0)
+    
+    if st.button("Start Research Phase", type="primary", use_container_width=True):
+        st.info(f"🚀 Starting Research: {symbol} (Target: {target_roi}% ROI, {max_dd}% DD)")
+        
+        # 1. Fetch Data
+        df = pd.DataFrame()
+        with st.spinner(f"Fetching data for {symbol} from {data_source}..."):
+            if data_source == "OpenAlgo (DuckDB)":
+                from data_pipeline.openalgo_connector import OpenAlgoDataConnector
+                connector = OpenAlgoDataConnector()
+                end_date = datetime.now()
+                # Request more data for smaller intervals to ensure a good backtest
+                days_to_fetch = 365 if interval == "1d" else 30
+                start_date = end_date - timedelta(days=days_to_fetch)
+                
+                df = connector.get_historical_data(
+                    symbol=symbol, 
+                    exchange=exchange, 
+                    interval=interval,
+                    start_date=start_date, 
+                    end_date=end_date
+                )
+                if df.empty:
+                    st.warning("No data returned from OpenAlgo. Falling back to sandbox data.")
+            
+            if df.empty:
+                # Sandbox fallback
+                dates = pd.date_range(end=datetime.now(), periods=1000, freq='D')
+                df = pd.DataFrame({
+                    "close": np.random.randn(1000).cumsum() + 100,
+                    "high": np.random.randn(1000).cumsum() + 105,
+                    "low": np.random.randn(1000).cumsum() + 95,
+                    "open": np.random.randn(1000).cumsum() + 100,
+                    "volume": np.random.randint(100, 1000, 1000)
+                }, index=dates)
+
+        # 2. Config for Agent
+        config = {
+            "name": f"Research_{symbol}",
+            "target_roi": target_roi,
+            "max_drawdown": max_dd,
+            "interval": interval
+        }
+        
+        # 3. Initialize Runner with UI Overrides
+        from agent.runner import HermesRunner
+        runner = HermesRunner(
+            session_id=f"Session_{symbol}_{int(time.time())}", 
+            df=df, 
+            config=config,
+            llm_config={
+                "model_name": ui_model,
+                "api_base": ui_api_base,
+                "api_key": ui_api_key if ui_api_key else None
+            }
+        )
+        
+        # 4. Execute Loop
+        with st.status("Hermes is researching and backtesting...", expanded=True) as status:
+            success = runner.execute_research_loop(
+                max_iterations=max_iterations, 
+                status_callback=lambda msg: status.write(msg),
+                auto_deploy=auto_deploy
+            )
+            status.update(label="Research Phase Complete!", state="complete", expanded=False)
+            
+            if success:
+                st.success("✅ Success! Strategy meeting all goals has been generated and exported.")
+                
+                # Fetch the best iteration to show Robustness
+                registry = HermesRegistry()
+                best = registry.get_best_iteration(runner.session_id)
+                if best:
+                    cols = st.columns(3)
+                    cols[0].metric("Final ROI", f"{best['metrics'].get('Total_Return_Pct', 0):.2f}%")
+                    cols[1].metric("Max Drawdown", f"{best['metrics'].get('Max_Drawdown_Pct', 0):.2f}%")
+                    cols[2].metric("Robustness (OASIS)", f"{best.get('robustness_score', 0):.1f}%")
+                    
+                    if best.get('robustness_score', 0) >= 60:
+                        st.success("🛡️ OASIS Stress Test Passed (Verified Robust)")
+                    else:
+                        st.warning("⚠️ OASIS Stress Test Warning (Fragile Strategy)")
+                
+                st.balloons()
+            else:
+                st.error("❌ Failed to find a strategy meeting the criteria.")
+
+        # Show logs in the UI
+        registry = HermesRegistry()
+        history = registry.get_session_history(runner.session_id)
+        
+        log_text = ""
+        for h in history:
+            log_text += f"Iteration {h['iteration']}: ROI {h['metrics'].get('Total_Return_Pct', 0):.2f}%, DD {h['metrics'].get('Max_Drawdown_Pct', 0):.2f}% | Concept: {h.get('concept', 'N/A')}\n"
+            if h['failures']:
+                log_text += f"  - Failures: {h['failures']}\n"
+        
+        log_container.code(log_text if log_text else "No iterations completed.")
+
+
+# File: research_dixon.py
+import os
+import pandas as pd
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+from data_pipeline.openalgo_connector import OpenAlgoDataConnector
+from agent.runner import HermesRunner
+
+load_dotenv()
+
+def run_dixon_research():
+    symbol = "DIXON"
+    exchange = "NSE"
+    interval = "5minute" # Using the Hermes internal interval name
+    
+    print(f"--- Starting Deep Research for {symbol} ({interval}) ---")
+    
+    # 1. Fetch Data
+    connector = OpenAlgoDataConnector()
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=60) # Fetch 60 days of 5m data
+    
+    print(f"Fetching data from {start_date.date()} to {end_date.date()}...")
+    df = connector.get_historical_data(
+        symbol=symbol, 
+        exchange=exchange, 
+        interval=interval,
+        start_date=start_date, 
+        end_date=end_date
+    )
+    
+    if df.empty:
+        print("Error: No data retrieved. Check connection.")
+        return
+
+    print(f"Successfully loaded {len(df)} rows.")
+
+    # 2. Configure Agent Goals
+    config = {
+        "name": f"{symbol}_Research_Session",
+        "target_roi": 5.0,        # As requested
+        "max_drawdown": 5.0,      # As requested
+        "max_iterations": 5       # Give it more attempts
+    }
+
+    # 3. Run Agent
+    runner = HermesRunner(
+        session_id=f"DeepDive_{int(datetime.now().timestamp())}", 
+        df=df, 
+        config=config
+    )
+
+    print("\n--- AI Agent is now thinking and backtesting ---")
+    success = runner.execute_research_loop(max_iterations=config["max_iterations"])
+
+    if success:
+        print("\n✅ SUCCESS: Found a strategy meeting your goals!")
+    else:
+        print("\n❌ FAILED: Could not meet goals within 5 iterations.")
+
+if __name__ == "__main__":
+    run_dixon_research()
+
+
+# File: data_pipeline/__init__.py
+
+
+# File: data_pipeline/openalgo_connector.py
+"""
+OpenAlgo REST API Client for Hermes Research Platform
+======================================================
+Communicates with the OpenAlgo broker gateway via its documented REST API.
+
+NO direct file system access. NO DuckDB mounts.
+Hermes and OpenAlgo are independent services on the same Docker network (hermes_net).
+The OpenAlgo container is reachable at http://openalgo:5000 inside Docker,
+or http://127.0.0.1:5000 when running locally.
+
+Supported brokers (configured in this deployment): Zerodha, Upstox
+"""
+import os
+import requests
+import pandas as pd
+from datetime import datetime
+from typing import Optional
+
+
+class OpenAlgoClient:
+    """
+    REST API client for the OpenAlgo broker gateway (marketcalls/openalgo).
+
+    Reads OPENALGO_HOST and OPENALGO_API_KEY from environment variables.
+    All broker operations (historical data, order placement, positions, quotes)
+    go through OpenAlgo's documented HTTP API — no file mounts or DuckDB needed.
+
+    Typical Docker usage:
+        OPENALGO_HOST=http://openalgo:5000   (set automatically by docker-compose)
+        OPENALGO_API_KEY=<key from OpenAlgo UI>
+
+    Local dev usage:
+        OPENALGO_HOST=http://127.0.0.1:5000
+    """
+
+    def __init__(self, host: Optional[str] = None, api_key: Optional[str] = None):
+        self.host = (host or os.getenv("OPENALGO_HOST", "http://127.0.0.1:5000")).rstrip("/")
+        self.api_key = api_key or os.getenv("OPENALGO_API_KEY", "")
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Content-Type": "application/json",
+        })
+
+    def _post(self, endpoint: str, payload: dict) -> dict:
+        """Internal helper for POST requests to the OpenAlgo API."""
+        payload["apikey"] = self.api_key
+        url = f"{self.host}{endpoint}"
+        try:
+            resp = self._session.post(url, json=payload, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot reach OpenAlgo at {self.host}. "
+                "Ensure OpenAlgo is running and OPENALGO_HOST is set correctly."
+            )
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"OpenAlgo API error [{resp.status_code}]: {resp.text}") from e
+
+    def _get(self, endpoint: str, params: Optional[dict] = None) -> dict:
+        """Internal helper for GET requests to the OpenAlgo API."""
+        url = f"{self.host}{endpoint}"
+        _params = {"apikey": self.api_key}
+        if params:
+            _params.update(params)
+        try:
+            resp = self._session.get(url, params=_params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot reach OpenAlgo at {self.host}. "
+                "Ensure OpenAlgo is running and OPENALGO_HOST is set correctly."
+            )
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"OpenAlgo API error [{resp.status_code}]: {resp.text}") from e
+
+    # -------------------------------------------------------------------------
+    # Health / Connectivity
+    # -------------------------------------------------------------------------
+
+    def ping(self) -> bool:
+        """
+        Check if OpenAlgo is reachable and the API key is valid.
+        Returns True on success, False on any failure.
+        """
+        try:
+            result = self._post("/api/v1/funds", {})
+            return result.get("status") == "success"
+        except Exception:
+            return False
+
+    # -------------------------------------------------------------------------
+    # Historical Data
+    # -------------------------------------------------------------------------
+
+    def get_historical_data(
+        self,
+        symbol: str,
+        exchange: str,
+        interval: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> pd.DataFrame:
+        """
+        Fetch historical OHLCV data from OpenAlgo's Historify API.
+
+            interval:   Candle interval (mapped automatically)
+            start_date: Start of the data range
+            end_date:   End of the data range
+
+        Returns:
+            pd.DataFrame with OHLCV data.
+        """
+        # Map Hermes intervals to OpenAlgo API expectations
+        interval_map = {
+            "1d": "D",
+            "1minute": "1m",
+            "5minute": "5m",
+            "15minute": "15m",
+            "30minute": "30m",
+            "1hour": "1h"
+        }
+        api_interval = interval_map.get(interval, interval)
+
+        payload = {
+            "symbol": symbol,
+            "exchange": exchange,
+            "interval": api_interval,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        }
+        try:
+            result = self._post("/api/v1/history", payload)
+            if result.get("status") != "success" or not result.get("data"):
+                print(f"[OpenAlgoClient] No data returned for {symbol}: {result.get('message', 'unknown')}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(result["data"])
+            # Normalise column names across broker differences
+            df.columns = [c.lower() for c in df.columns]
+            if "datetime" in df.columns:
+                df.rename(columns={"datetime": "timestamp"}, inplace=True)
+            if "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df.set_index("timestamp", inplace=True)
+            return df
+
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error fetching historical data for {symbol}: {e}")
+            return pd.DataFrame()
+
+    # -------------------------------------------------------------------------
+    # Live Quotes
+    # -------------------------------------------------------------------------
+
+    def get_quotes(self, symbol: str, exchange: str) -> dict:
+        """
+        Get live LTP and market depth for a symbol.
+
+        Returns dict with keys: ltp, open, high, low, close, volume, etc.
+        Returns empty dict on error.
+        """
+        try:
+            result = self._post("/api/v1/quotes", {"symbol": symbol, "exchange": exchange})
+            if result.get("status") == "success":
+                return result.get("data", {})
+            return {}
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error fetching quotes for {symbol}: {e}")
+            return {}
+
+    # -------------------------------------------------------------------------
+    # Order Management
+    # -------------------------------------------------------------------------
+
+    def place_order(
+        self,
+        symbol: str,
+        exchange: str,
+        action: str,          # "BUY" or "SELL"
+        quantity: int,
+        product: str = "MIS", # "MIS" (intraday) or "CNC" (delivery) or "NRML" (F&O)
+        price_type: str = "MARKET",
+        price: float = 0,
+        trigger_price: float = 0,
+        disclosed_quantity: int = 0,
+        strategy: str = "Hermes",
+    ) -> dict:
+        """
+        Place an order via OpenAlgo.
+
+        Supported on: Zerodha, Upstox (and all other configured brokers).
+
+        Args:
+            symbol:             Trading symbol e.g. "RELIANCE"
+            exchange:           Exchange e.g. "NSE", "BSE", "NFO"
+            action:             "BUY" or "SELL"
+            quantity:           Number of shares / lots
+            product:            "MIS" for intraday, "CNC" for delivery, "NRML" for F&O
+            price_type:         "MARKET", "LIMIT", "SL", "SL-M"
+            price:              Limit price (0 for market orders)
+            trigger_price:      Stop loss trigger price
+            disclosed_quantity: Disclosed quantity (0 for standard orders)
+            strategy:           Strategy tag shown in OpenAlgo's order log
+
+        Returns:
+            dict with keys: status, orderid, message
+        """
+        payload = {
+            "symbol": symbol,
+            "exchange": exchange,
+            "action": action.upper(),
+            "quantity": str(quantity),
+            "product": product,
+            "pricetype": price_type,
+            "price": str(price),
+            "trigger_price": str(trigger_price),
+            "disclosed_quantity": str(disclosed_quantity),
+            "strategy": strategy,
+        }
+        try:
+            result = self._post("/api/v1/placeorder", payload)
+            return result
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error placing order for {symbol}: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def place_smart_order(
+        self,
+        symbol: str,
+        exchange: str,
+        action: str,
+        quantity: int,
+        position_size: int,
+        product: str = "MIS",
+        price_type: str = "MARKET",
+        price: float = 0,
+        strategy: str = "Hermes",
+    ) -> dict:
+        """
+        Place a smart order that automatically handles position sizing.
+        OpenAlgo checks current position and only orders the difference.
+        This prevents double-buying if the strategy fires multiple times.
+        """
+        payload = {
+            "symbol": symbol,
+            "exchange": exchange,
+            "action": action.upper(),
+            "quantity": str(quantity),
+            "position_size": str(position_size),
+            "product": product,
+            "pricetype": price_type,
+            "price": str(price),
+            "trigger_price": "0",
+            "disclosed_quantity": "0",
+            "strategy": strategy,
+        }
+        try:
+            result = self._post("/api/v1/placesmartorder", payload)
+            return result
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error placing smart order for {symbol}: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def cancel_order(self, order_id: str, strategy: str = "Hermes") -> dict:
+        """Cancel a pending order by its OpenAlgo order ID."""
+        try:
+            return self._post("/api/v1/cancelorder", {"orderid": order_id, "strategy": strategy})
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def close_all_positions(self, strategy: str = "Hermes") -> dict:
+        """Close all open positions for the given strategy tag."""
+        try:
+            return self._post("/api/v1/closeposition", {"strategy": strategy})
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    # -------------------------------------------------------------------------
+    # Portfolio / Account
+    # -------------------------------------------------------------------------
+
+    def get_positions(self) -> list:
+        """
+        Get current open positions.
+        Returns list of position dicts, or empty list on error.
+        """
+        try:
+            result = self._post("/api/v1/positionbook", {})
+            if result.get("status") == "success":
+                return result.get("data", [])
+            return []
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error fetching positions: {e}")
+            return []
+
+    def get_orderbook(self) -> list:
+        """
+        Get today's order history.
+        Returns list of order dicts, or empty list on error.
+        """
+        try:
+            result = self._post("/api/v1/orderbook", {})
+            if result.get("status") == "success":
+                return result.get("data", [])
+            return []
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error fetching orderbook: {e}")
+            return []
+
+    def get_funds(self) -> dict:
+        """
+        Get available funds / margin from broker.
+        Returns dict with balance info, or empty dict on error.
+        """
+        try:
+            result = self._post("/api/v1/funds", {})
+            if result.get("status") == "success":
+                return result.get("data", {})
+            return {}
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error fetching funds: {e}")
+            return {}
+
+    # -------------------------------------------------------------------------
+    # Strategy Management (New in OpenAlgo)
+    # -------------------------------------------------------------------------
+
+    def create_strategy(
+        self,
+        name: str,
+        platform: str = "Python",
+        strategy_type: str = "intraday",
+        trading_mode: str = "LONG"
+    ) -> dict:
+        """
+        Create a new strategy entry in OpenAlgo.
+        This will make the strategy appear in the OpenAlgo Strategies list.
+        """
+        payload = {
+            "name": name,
+            "platform": platform,
+            "strategy_type": strategy_type,
+            "trading_mode": trading_mode
+        }
+        try:
+            result = self._post("/api/v1/strategy/create", payload)
+            return result
+        except Exception as e:
+            print(f"[OpenAlgoClient] Error creating strategy in OpenAlgo: {e}")
+            return {"status": "error", "message": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatibility alias
+# Old code that imported OpenAlgoDataConnector will still work.
+# It will use the REST API instead of DuckDB — no file mounts needed.
+# ---------------------------------------------------------------------------
+class OpenAlgoDataConnector(OpenAlgoClient):
+    """
+    Backwards-compatibility shim.
+    Alias of OpenAlgoClient for code that imported OpenAlgoDataConnector.
+    All data now comes from the REST API, not the DuckDB file mount.
+    """
+    pass
+
+
+# File: hermes_strategies/trend_momentum.py
+import numpy as np
+import talib
+from typing import Dict, Any, Optional
+
+class TrendMomentumStrategy:
+    """
+    Identifies trend momentum opportunities using SMA, RSI, and MACD.
+    Tuned for Swing Trading (Positional).
+    Expects Daily (1D) close prices.
+    """
+
+    def analyze(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Analyze price data for trend momentum signals.
+
+        Args:
+            data (dict): Must contain 'close' as a list or np.ndarray of recent closing prices.
+
+        Returns:
+            dict or None: Signal dictionary if a setup is detected, else None.
+        """
+        closes = np.asarray(data.get('close', []))
+        if closes.size < 50:
+            # Not enough data for 50-period indicators
+            return None
+
+        closes = closes[-50:]
+
+        # Trend confirmation
+        sma20 = talib.SMA(closes, timeperiod=20)[-1]
+        sma50 = talib.SMA(closes, timeperiod=50)[-1]
+
+        # Momentum confirmation
+        rsi = talib.RSI(closes, timeperiod=14)[-1]
+        macd, macdsignal, macdhist = talib.MACD(closes, fastperiod=12, slowperiod=26, signalperiod=9)
+
+        # Swing Trading parameters
+        target_pct_long = 1.12   # 12% target for swing
+        target_pct_short = 0.88  # 12% target for short swing
+
+        # Long setup: uptrend, strong momentum
+        if (sma20 > sma50 and rsi > 50 and macd[-1] > macd[-5]):
+            # Stop loss at 20-day low to withstand daily volatility
+            sl = float(np.min(closes[-20:]))
+            # Ensure SL is not too tight (minimum 5% below entry)
+            if (closes[-1] - sl) / closes[-1] < 0.05:
+                sl = closes[-1] * 0.95
+
+            return {
+                'entry': closes[-1],
+                'sl': round(sl, 2),
+                'target': round(closes[-1] * target_pct_long, 2),
+                'score': 8,
+                'type': 'trend_momentum',
+                'direction': 'long',
+                'timeframe': 'swing'
+            }
+        
+        # Short setup: downtrend, weak momentum
+        elif (sma20 < sma50 and rsi < 50 and macd[-1] < macd[-5]):
+            # Stop loss at 20-day high
+            sl = float(np.max(closes[-20:]))
+            if (sl - closes[-1]) / closes[-1] < 0.05:
+                sl = closes[-1] * 1.05
+
+            return {
+                'entry': closes[-1],
+                'sl': round(sl, 2),
+                'target': round(closes[-1] * target_pct_short, 2),
+                'score': 7,
+                'type': 'trend_momentum',
+                'direction': 'short',
+                'timeframe': 'swing'
+            }
+        
+        return None
+
+
+# File: hermes_strategies/__init__.py
+# Hermes Strategies Package
+# Contains strategy modules for trend momentum, mean reversion, delivery analysis, etc.
+
+
+# File: hermes_strategies/delivery_analysis.py
+from typing import Optional, Dict, Any
+
+class DeliveryAnalysisStrategy:
+    """
+    Analyzes delivery volume patterns to generate trading signals based on delivery percentage and averages.
+    Tuned for Swing / Positional Trading. High delivery signifies long-term institutional interest.
+    """
+
+    def analyze(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Analyze delivery volume patterns and return a signal dict if criteria are met.
+
+        Args:
+            data (dict): Must contain 'delivery_pct', 'delivery_3day_avg', and 'close' keys.
+
+        Returns:
+            dict or None: Signal dictionary if a pattern is detected, else None.
+        """
+        # Defensive: Ensure required keys exist and are valid numbers
+        try:
+            delivery_pct = float(data.get('delivery_pct', 0))
+            delivery_3day_avg = float(data.get('delivery_3day_avg', 0))
+            close = float(data.get('close', 0))
+        except (TypeError, ValueError):
+            return None
+
+        if close <= 0:
+            return None
+
+        # Swing Parameters
+        # Institutional delivery signals often take days/weeks to unfold.
+        # We need wider stops and higher targets.
+        target_pct = 1.15  # 15% target
+        sl_pct = 0.92      # 8% stop loss
+
+        # High delivery volume (strong accumulation sign)
+        if delivery_pct > 40 and delivery_3day_avg > 1.5:
+            return {
+                'score': 9, # High score for swing trades
+                'reason': 'high_delivery_volume_accumulation',
+                'validity_days': 5, # Valid for 5 days in swing trading
+                'entry': close,
+                'sl': round(close * sl_pct, 2),
+                'target': round(close * target_pct, 2),
+                'direction': 'long',
+                'timeframe': 'positional'
+            }
+        
+        # Low delivery volume (lack of interest)
+        elif delivery_pct < 25:
+            return {
+                'score': 3,
+                'reason': 'low_delivery_volume_distribution',
+                'validity_days': 1
+            }
+            
+        return None
+
+
+# File: hermes_strategies/mean_reversion.py
+import talib
+import numpy as np
+from typing import Dict, Any, Optional
+
+class MeanReversionStrategy:
+    """
+    Identifies mean reversion opportunities using Bollinger Bands and RSI.
+    Tuned for Swing Trading: targets middle band but uses wider stops.
+    """
+
+    def analyze(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Analyze price data for mean reversion signals.
+
+        Args:
+            data (dict): Must contain 'close' as a list or np.ndarray of recent closing prices.
+
+        Returns:
+            dict or None: Signal dictionary if a setup is detected, else None.
+        """
+        closes = np.asarray(data.get('close', []))
+        if closes.size < 20:
+            # Not enough data for 20-period indicators
+            return None
+
+        # Calculate Bollinger Bands (20, 2) and RSI (14)
+        upper, middle, lower = talib.BBANDS(closes, timeperiod=20, nbdevup=2, nbdevdn=2)
+        rsi = talib.RSI(closes, timeperiod=14)[-1]
+
+        last_close = closes[-1]
+        signal = None
+
+        # Swing trading SL %
+        sl_pct_long = 0.94   # 6% stop loss for swing
+        sl_pct_short = 1.06  # 6% stop loss for short
+
+        # Long setup: price below lower band and oversold RSI
+        if last_close < lower[-1] and rsi < 35:
+            signal = {
+                'entry': last_close,
+                'sl': round(last_close * sl_pct_long, 2),
+                'target': round(middle[-1], 2),  # Target is mean reversion (20-day SMA)
+                'score': 7,
+                'type': 'mean_reversion',
+                'direction': 'long',
+                'timeframe': 'swing'
+            }
+        
+        # Short setup: price above upper band and overbought RSI
+        elif last_close > upper[-1] and rsi > 65:
+            signal = {
+                'entry': last_close,
+                'sl': round(last_close * sl_pct_short, 2),
+                'target': round(middle[-1], 2),
+                'score': 6,
+                'type': 'mean_reversion',
+                'direction': 'short',
+                'timeframe': 'swing'
+            }
+
+        return signal
+
+
+# File: hermes_strategies/Session_SBIN_1776704978/strategy.py
+#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: Session_SBIN_1776704978
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+def evaluate(df, params):
+    # Strategy: Momentum breakout with ATR-based stop and volume confirmation
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    atr = get_atr(df['high'], df['low'], df['close'], window=params.get('atr_window', 14))
+    volume_ma = df['volume'].rolling(window=params.get('volume_ma_window', 20)).mean()
+    
+    # Entry: RSI breaking above oversold + volume surge + price above short MA
+    entries = (rsi > params.get('rsi_entry_level', 30)) & \
+              (rsi.shift(1) <= params.get('rsi_entry_level', 30)) & \
+              (df['volume'] > volume_ma * params.get('volume_multiplier', 1.8)) & \
+              (df['close'] > df['close'].rolling(window=params.get('price_ma_window', 10)).mean())
+    
+    # Exit: RSI overbought OR price reversal below ATR stop
+    exits = (rsi > params.get('rsi_exit_level', 70)) | \
+            (df['close'] < df['close'].shift(1) - atr * params.get('atr_multiplier', 1.5))
+    
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "rsi_window": range(10, 20, 2),
+    "atr_window": range(10, 20, 2),
+    "volume_ma_window": range(15, 30, 3),
+    "price_ma_window": range(8, 15, 2),
+    "rsi_entry_level": range(25, 40, 3),
+    "rsi_exit_level": range(65, 85, 3),
+    "volume_multiplier": [1.5, 1.8, 2.0],
+    "atr_multiplier": [1.3, 1.5, 1.8]
+}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+
+
+# File: hermes_strategies/Session_DIXON_1776700748/strategy.py
+#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: Session_DIXON_1776700748
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+def evaluate(df, params):
+    # Moving Average Crossover
+    fast_window = params.get('fast_window', 10)
+    slow_window = params.get('slow_window', 30)
+    fast_ma = vbt.MA.run(df['close'], window=fast_window).ma
+    slow_ma = vbt.MA.run(df['close'], window=slow_window).ma
+
+    # RSI for confirmation
+    rsi_window = params.get('rsi_window', 14)
+    rsi = vbt.RSI.run(df['close'], window=rsi_window).rsi
+
+    # Bollinger Bands for volatility
+    bb_window = params.get('bb_window', 20)
+    bb_alpha = params.get('bb_alpha', 2)
+    bb = vbt.BBANDS.run(df['close'], window=bb_window, alpha=bb_alpha)
+    upper_bb = bb.upper
+    lower_bb = bb.lower
+
+    # Entry conditions: Fast MA crosses above Slow MA, RSI below 70, price above lower BB
+    entries = (
+        (fast_ma > slow_ma) &
+        (rsi < params.get('rsi_upper', 70)) &
+        (df['close'] > lower_bb)
+    )
+
+    # Exit conditions: Fast MA crosses below Slow MA, RSI above 30, price below upper BB
+    exits = (
+        (fast_ma < slow_ma) &
+        (rsi > params.get('rsi_lower', 30)) &
+        (df['close'] < upper_bb)
+    )
+
+    # No short positions
+    short_entries = None
+    short_exits = None
+
+    return entries, exits, short_entries, short_exits
+
+PARAM_RANGES = {
+    "fast_window": range(5, 20, 1),
+    "slow_window": range(20, 50, 2),
+    "rsi_window": range(10, 20, 1),
+    "rsi_lower": range(20, 40, 2),
+    "rsi_upper": range(60, 80, 2),
+    "bb_window": range(10, 30, 2),
+    "bb_alpha": [1.0, 1.5, 2.0, 2.5, 3.0]
+}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+
+
+# File: hermes_strategies/Session_SBIN_1776705731/strategy.py
+#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: Session_SBIN_1776705731
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    
+    # Entry: Price breaks above upper band and RSI confirms momentum
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50))
+    
+    # Exit: Price breaks below lower band or RSI shows weakness
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30))
+    
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5)
+}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+
+
+# File: hermes_strategies/Session_TRENT_1776707227/strategy.py
+#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: Session_TRENT_1776707227
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volume filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (df['volume'] < params.get('min_volume', 1000))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+
+
+# File: hermes_strategies/Session_TRENT_1776706556/strategy.py
+#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: Session_TRENT_1776706556
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+def evaluate(df, params):
+    # Strategy: Bollinger Band breakout with RSI confirmation and volume filter
+    bb = get_bbands(df['close'], window=params.get('bb_window', 20), std=params.get('bb_std', 2.0))
+    rsi = run_indicator('RSI', df['close'], window=params.get('rsi_window', 14))
+    entries = (df['close'] > bb.upper) & (rsi > params.get('rsi_entry', 50)) & (df['volume'] > params.get('min_volume', 1000))
+    exits = (df['close'] < bb.lower) | (rsi < params.get('rsi_exit', 30)) | (df['volume'] < params.get('min_volume', 1000))
+    return entries, exits, None, None
+
+PARAM_RANGES = {
+    "bb_window": range(10, 30, 2),
+    "bb_std": [1.5, 2.0, 2.5],
+    "rsi_window": range(10, 30, 2),
+    "rsi_entry": range(45, 65, 5),
+    "rsi_exit": range(25, 45, 5),
+    "min_volume": [500, 1000, 1500, 2000]
+}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+
+
+# File: agent/runner.py
+import os
+import re
+import time
+import pandas as pd
+import numpy as np
+import vectorbt as vbt
+from datetime import datetime
+from data_pipeline.openalgo_connector import OpenAlgoClient
+
+from agent.llm_router import HermesLLM
+from agent.memory import HermesMemory
+from agent.registry import HermesRegistry
+from agent.optimizer import HermesOptimizer
+from backtester.engine import HermesBacktester
+
+class HermesRunner:
+    """
+    The Core Agentic Loop for Hermes.
+    Connects the LLM, Context Memory, Backtester, and Iteration Registry.
+    """
+    def __init__(self, session_id: str, df: pd.DataFrame, config: dict, llm_config: dict = None):
+        self.session_id = session_id
+        self.df = df
+        self.config = config
+        
+        # Use UI overrides if provided, otherwise defaults to .env
+        llm_config = llm_config or {}
+        self.llm = HermesLLM(
+            model_name=llm_config.get("model_name"),
+            api_base=llm_config.get("api_base"),
+            api_key=llm_config.get("api_key")
+        )
+        self.memory = HermesMemory()
+        self.registry = HermesRegistry()
+        self.backtester = HermesBacktester()
+        self.optimizer = HermesOptimizer(self.backtester)
+        self.iteration_log = []
+        
+    def execute_research_loop(self, max_iterations=5, status_callback=None, auto_deploy=False):
+        """
+        Runs the autonomous strategy generation loop.
+        """
+        def update_status(msg):
+            if status_callback:
+                status_callback(msg)
+            print(msg)
+
+        update_status(f"Starting Research Session: {self.session_id}")
+        update_status(f"🎯 Objective: ROI > {self.config.get('target_roi', 0)}% | Drawdown < {self.config.get('max_drawdown', 100)}%")
+        
+        # 1. Retrieve Context & Skills
+        # Look for successful patterns to replicate and failures to avoid
+        context = self.memory.retrieve_wiki_context(keywords=["success", "failure", "iteration", "insight"])
+        skills = self.memory.list_available_skills()
+        
+        previous_code = ""
+        previous_feedback = ""
+        
+        for i in range(1, max_iterations + 1):
+            update_status(f"--- Iteration {i}/{max_iterations} ---")
+            
+            # 2. Build Prompt
+            prompt = f"Goal: Create a trading strategy meeting these metrics: {self.config}\n"
+            if previous_code:
+                prompt += f"\nPrevious attempt failed. Code:\n{previous_code}\n\nFeedback:\n{previous_feedback}\n"
+                if "0.00%" in previous_feedback:
+                    prompt += "CRITICAL: The previous strategy had ZERO trades. You MUST simplify the logic. Remove unnecessary filters and loosen the entry thresholds so that trades are actually triggered."
+                else:
+                    prompt += "Please fix the logic to achieve the target metrics."
+            else:
+                prompt += "Please write the initial `evaluate(df, params)` function."
+                
+            # 3. Generate Code
+            update_status("🧠 Generating strategy logic via LLM...")
+            code = self.llm.generate_strategy_code(prompt=prompt, context=context, skills=skills)
+            
+            if not code:
+                update_status("❌ Failed to generate code.")
+                break
+            
+            # Extract Strategy description for UI
+            strategy_desc = "Unknown"
+            match = re.search(r"# Strategy: (.*)", code)
+            if match:
+                strategy_desc = match.group(1)
+            update_status(f"🚀 **Concept**: {strategy_desc}")
+                
+            # 4. Sandbox Execution (Evaluate Initial)
+            metrics, failures, eval_func, param_ranges = self._sandbox_execute(code)
+            
+            # 5. Local Optimization (Reduce LLM Hits)
+            opt_metrics, opt_params = None, None
+            robustness_score = 0
+            
+            if eval_func and param_ranges:
+                update_status("🔍 Logic acquired. Now optimizing parameters locally (Zero LLM Hits)...")
+                opt_metrics, opt_params = self.optimizer.optimize(self.df, eval_func, param_ranges, self.config)
+                if opt_metrics:
+                    update_status(f"✨ Found improved parameters: {opt_params}")
+                    metrics = opt_metrics
+                    # Update code if we want to save the 'best' version (simplistic here)
+                    # In a real app, we might want to inject the opt_params as defaults.
+            
+            # 6. Check Goals (Only if execution was successful)
+            goals_met = False
+            if metrics:
+                goals_met, failure_reasons = self.backtester.check_goals(metrics, self.config)
+                if failure_reasons:
+                    failures.extend(failure_reasons)
+            else:
+                goals_met = False
+                if not failures:
+                    failures.append("Strategy execution returned no metrics.")
+            
+            log_entry = f"Iteration {i}: ROI {metrics.get('Total_Return_Pct', 0):.2f}%, DD {metrics.get('Max_Drawdown_Pct', 0):.2f}% | Concept: {strategy_desc}"
+            if failures:
+                log_entry += f"\n  - Failures: {failures}"
+            self.iteration_log.append(log_entry)
+            
+            # Save iteration to Wiki for context
+            status_text = "SUCCESS" if goals_met else "FAILURE"
+            wiki_content = f"ROI: {metrics.get('Total_Return_Pct', 0):.2f}%\nDD: {metrics.get('Max_Drawdown_Pct', 0):.2f}%\nConcept: {strategy_desc}\nFailures: {failures}\n\nCode:\n```python\n{code}\n```"
+            self.memory.save_wiki_entry(f"Iteration_{i}_{status_text}", wiki_content, session_id=self.session_id)
+            
+            # 7. Log Iteration to Registry
+            self.registry.log_iteration(
+                session_id=self.session_id,
+                strategy_name=strategy_desc,
+                iteration_number=i,
+                code_snippet=code,
+                metrics=metrics,
+                failures=failures,
+                goals_met=goals_met,
+                robustness_score=robustness_score
+            )
+            
+            if goals_met:
+                update_status(f"✅ GOAL MET: ROI {metrics.get('Total_Return_Pct', 0):.2f}% >= {self.config.get('target_roi', 0)}% | DD {abs(metrics.get('Max_Drawdown_Pct', 0)):.2f}% <= {self.config.get('max_drawdown', 0)}%")
+                update_status(f"✅ Success! Strategy meets all goals on iteration {i}.")
+                
+                # OASIS Stress Test (MiroFish Learning)
+                if eval_func:
+                    update_status("🛡️  Running OASIS Stress Test (Regime Robustness)...")
+                    robustness_score = self.backtester.run_oasis_stress_test(self.df, eval_func, opt_params or self.config.get("params", {}))
+                    update_status(f"🛡️  Robustness Score: {robustness_score:.1f}%")
+                    
+                    # MiroFish Grounding: Save the relationship learned
+                    regime_label = "Robust" if robustness_score >= 60 else "Fragile"
+                    self.memory.save_market_insight(
+                        relationship=f"{strategy_desc} -> {regime_label} in stressed regimes",
+                        evidence=f"Achieved {metrics.get('Total_Return_Pct', 0):.2f}% ROI with {robustness_score:.1f}% robustness on {self.session_id}"
+                    )
+                    
+                    if robustness_score < 60:
+                        update_status("⚠️  Warning: Strategy is fragile in non-ideal regimes.")
+                
+                if auto_deploy:
+                    update_status("🚀 Auto-deploying success to OpenAlgo...")
+                    self.export_to_openalgo(code, deploy=True)
+                else:
+                    self._export_strategy(code)
+                return True
+                
+            update_status(f"❌ Goals not met. Failures: {failures}")
+            previous_code = code
+            previous_feedback = str(failures)
+            
+        print("❌ Max iterations reached without meeting goals.")
+        if os.getenv("ENABLE_WIKI", "true").lower() == "true":
+            self.memory.save_wiki_entry(f"Failure Analysis: {self.session_id}", "Strategy failed to meet goals after max iterations.")
+        return False
+
+    def _sandbox_execute(self, code: str):
+        """
+        Safely executes the LLM generated code against the backtester.
+        Returns (metrics, failures, eval_func, param_ranges)
+        """
+        # Note: In production, this MUST run in a sandboxed process/Docker container to prevent arbitrary code execution.
+        # Restricting __builtins__ to prevent easy access to 'open', 'eval', etc.
+        # 1. Prepare Environment
+        from skills.vbt_utils import get_ma, get_rsi, get_bbands, get_macd, get_atr, get_adx, run_indicator
+        safe_globals = {
+            "pd": pd,
+            "np": np,
+            "vbt": vbt,
+            "get_ma": get_ma,
+            "get_rsi": get_rsi,
+            "get_bbands": get_bbands,
+            "get_macd": get_macd,
+            "get_atr": get_atr,
+            "get_adx": get_adx,
+            "run_indicator": run_indicator,
+            "__builtins__": __builtins__
+        }
+        local_scope = {}
+        try:
+            # Inject pandas and numpy and safe builtins into the local scope for the strategy to use
+            exec(code, safe_globals, local_scope)
+            
+            if "evaluate" not in local_scope:
+                return {}, ["Code is missing the `evaluate(df, params)` function."], None, None
+                
+            # Run the generated evaluate function
+            evaluate_func = local_scope["evaluate"]
+            param_ranges = local_scope.get("PARAM_RANGES", {})
+            
+            entries, exits, short_entries, short_exits = evaluate_func(self.df, self.config.get("params", {}))
+            
+            # Run through Backtester
+            metrics, _ = self.backtester.evaluate_signals(
+                df=self.df, 
+                entries=entries, 
+                exits=exits, 
+                short_entries=short_entries, 
+                short_exits=short_exits
+            )
+            return metrics, [], evaluate_func, param_ranges
+            
+        except Exception as e:
+            return {}, [f"Runtime Error during execution: {str(e)}"], None, None
+
+    @staticmethod
+    def _sanitize_code(code: str) -> tuple[bool, list[str]]:
+        """
+        Static analysis pass to block dangerous patterns in LLM-generated code
+        before it is written to an unrestricted export file.
+        Returns (is_safe, list_of_violations).
+        """
+        violations = []
+        banned_patterns = [
+            (r'\bimport\s+os\b', 'import os'),
+            (r'\bimport\s+subprocess\b', 'import subprocess'),
+            (r'\bimport\s+sys\b', 'import sys'),
+            (r'\bimport\s+shutil\b', 'import shutil'),
+            (r'\bfrom\s+os\b', 'from os'),
+            (r'\bfrom\s+subprocess\b', 'from subprocess'),
+            (r'\b__import__\s*\(', '__import__()'),
+            (r'\beval\s*\(', 'eval()'),
+            (r'\bexec\s*\(', 'exec()'),
+            (r'\bopen\s*\(', 'open()'),
+            (r'\bcompile\s*\(', 'compile()'),
+            (r'\bglobals\s*\(', 'globals()'),
+            (r'\bgetattr\s*\(', 'getattr()'),
+            (r'\bsetattr\s*\(', 'setattr()'),
+        ]
+        for pattern, name in banned_patterns:
+            if re.search(pattern, code):
+                violations.append(f"Blocked dangerous pattern: {name}")
+        return len(violations) == 0, violations
+
+    @staticmethod
+    def _safe_session_id(session_id: str) -> str:
+        """Sanitize session_id to prevent path traversal."""
+        # Strip everything except alphanumeric, underscores, and hyphens
+        return re.sub(r'[^a-zA-Z0-9_\-]', '_', session_id)[:200]
+
+    def _export_strategy(self, code: str):
+        """
+        Wraps the successful logic into OpenAlgo's SDK format and exports to hermes_strategies/
+        """
+        # Static analysis gate — refuse to export unsafe code
+        is_safe, violations = self._sanitize_code(code)
+        if not is_safe:
+            print(f"⛔ Strategy export BLOCKED due to dangerous code patterns:")
+            for v in violations:
+                print(f"   - {v}")
+            self.memory.save_wiki_entry(
+                f"Blocked Export: {self.session_id}",
+                f"Code contained dangerous patterns: {violations}"
+            )
+            return
+
+        # Standard OpenAlgo Boilerplate
+        safe_id = self._safe_session_id(self.session_id)
+        boilerplate = f'''#!/usr/bin/env python
+"""
+Auto-Generated by Hermes AI
+Session: {safe_id}
+"""
+from openalgo import api
+import pandas as pd
+import numpy as np
+import time
+import os
+
+api_key = os.getenv('OPENALGO_API_KEY')
+host    = os.getenv('HOST_SERVER', 'http://127.0.0.1:5000')
+
+if not api_key:
+    print("Error: OPENALGO_API_KEY environment variable not set")
+    exit(1)
+
+client = api(api_key=api_key, host=host)
+
+{code}
+
+def main():
+    print("Starting AI Strategy...")
+    # Add live loop execution logic here utilizing the `evaluate` function.
+    
+if __name__ == "__main__":
+    main()
+'''
+        export_dir = os.path.join("hermes_strategies", safe_id)
+        os.makedirs(export_dir, exist_ok=True)
+        
+        file_path = os.path.join(export_dir, "strategy.py")
+        with open(file_path, "w") as f:
+            f.write(boilerplate)
+            
+        print(f"Strategy exported to {file_path} - Ready for OpenAlgo UI upload!")
+        return file_path
+
+    def export_to_openalgo(self, code: str, deploy: bool = False) -> dict:
+        """
+        Export a validated strategy to the local hermes_strategies/ directory
+        and optionally deploy it live to the OpenAlgo broker gateway.
+
+        Args:
+            code:   The validated strategy Python code (must contain evaluate()).
+            deploy: If True, attempt to push the strategy file to OpenAlgo's
+                    /api/v1/strategies endpoint. If False (default), only write
+                    locally — useful for review before going live.
+
+        Returns:
+            dict with keys:
+                exported_path (str): Local file path of the written strategy.
+                deployed (bool):     Whether the strategy was pushed to OpenAlgo.
+                order_result (dict): Result of the OpenAlgo deploy call, if attempted.
+                errors (list):       Any errors encountered.
+        """
+        result = {"exported_path": None, "deployed": False, "order_result": {}, "errors": []}
+
+        # Step 1: Write to local file
+        try:
+            path = self._export_strategy(code)
+            result["exported_path"] = path
+        except Exception as e:
+            result["errors"].append(f"Local export failed: {e}")
+            return result
+
+        if not deploy:
+            print("ℹ️  Strategy written locally. Set deploy=True to push to OpenAlgo.")
+            return result
+
+        # Step 2: Push to OpenAlgo REST API
+        client = OpenAlgoClient()
+        if not client.ping():
+            result["errors"].append(
+                f"OpenAlgo not reachable at {client.host}. "
+                "Is OpenAlgo running? Check: make status"
+            )
+            return result
+
+        safe_id = self._safe_session_id(self.session_id)
+        try:
+            # We use the session ID as a unique identifier for the strategy in OpenAlgo
+            # But we can also include a hint of the concept in the name
+            concept_summary = self.config.get("name", "Hermes")
+            strategy_name = f"Hermes_{safe_id}_{concept_summary}"[:50] # OpenAlgo name limit
+
+            order_result = client.create_strategy(
+                name=strategy_name,
+                platform="Python",
+                strategy_type="intraday",
+                trading_mode="LONG"
+            )
+            result["order_result"] = order_result
+
+            if order_result.get("status") == "success":
+                result["deployed"] = True
+                print(f"✅ Strategy '{strategy_name}' registered in OpenAlgo successfully.")
+                self.memory.save_wiki_entry(
+                    f"Deployed: {self.session_id}",
+                    f"Strategy '{strategy_name}' registered in OpenAlgo at {client.host}. Webhook: {order_result.get('data', {}).get('webhook_id')}"
+                )
+            else:
+                msg = order_result.get("message", "Unknown error from OpenAlgo")
+                result["errors"].append(f"OpenAlgo strategy creation returned: {msg}")
+                print(f"⚠️  OpenAlgo strategy creation response: {msg}")
+
+        except Exception as e:
+            result["errors"].append(f"OpenAlgo deploy error: {e}")
+            print(f"⚠️  Error deploying to OpenAlgo: {e}")
+
+        return result
+
+
+# File: agent/memory.py
+import os
+import glob
+
+class HermesMemory:
+    """
+    Manages long-term context (Obsidian-style Wiki) and dynamic Skill generation.
+    This prevents the LLM context window from ballooning while maintaining persistence.
+    """
+    def __init__(self, base_dir="."):
+        self.wiki_dir = os.path.join(base_dir, "hermes_wiki")
+        self.skills_dir = os.path.join(base_dir, "skills")
+        
+        os.makedirs(self.wiki_dir, exist_ok=True)
+        os.makedirs(self.skills_dir, exist_ok=True)
+        
+        # Initialize an index file if it doesn't exist
+        self.index_file = os.path.join(self.wiki_dir, "INDEX.md")
+        self.insights_file = os.path.join(self.wiki_dir, "MARKET_INSIGHTS.md")
+        
+        if not os.path.exists(self.index_file):
+            with open(self.index_file, "w") as f:
+                f.write("# Hermes Knowledge Index\n\nThis vault contains learnings about market behavior and API structures.\n")
+        
+        if not os.path.exists(self.insights_file):
+            with open(self.insights_file, "w") as f:
+                f.write("# Market Insights (MiroFish Grounding)\n\nPersistent relationships and behavioral patterns.\n")
+
+    def save_wiki_entry(self, topic: str, content: str, session_id: str = ""):
+        """
+        Saves a learning to the markdown vault.
+        """
+        # Clean topic string for filename
+        clean_topic = "".join(x for x in topic if x.isalnum() or x in " _-").replace(" ", "_").lower()
+        
+        # Prefix with session_id if provided
+        prefix = f"{session_id}_" if session_id else ""
+        filename = f"{prefix}{clean_topic}".replace("__", "_")[:200] + ".md"
+        filepath = os.path.join(self.wiki_dir, filename)
+        
+        # Append if exists, else write new
+        mode = "a" if os.path.exists(filepath) else "w"
+        with open(filepath, mode) as f:
+            f.write(f"\n## {topic} (Session: {session_id})\n")
+            f.write(content + "\n")
+            
+        # Update index if new
+        if mode == "w":
+            with open(self.index_file, "a") as f:
+                f.write(f"- [[{filename}]] - {topic} ({session_id})\n")
+
+    def save_market_insight(self, relationship: str, evidence: str):
+        """
+        Saves a structured market relationship (MiroFish Grounding).
+        Format: "Entity A -> Behavior -> Entity B"
+        """
+        with open(self.insights_file, "a") as f:
+            f.write(f"\n- **Insight**: {relationship}\n")
+            f.write(f"  - *Evidence*: {evidence}\n")
+            f.write(f"  - *Logged*: {os.path.basename(relationship)}\n")
+
+    def retrieve_wiki_context(self, keywords: list) -> str:
+        """
+        Naive RAG: Scans markdown files for keywords and returns relevant context.
+        In a production system, this would use vector embeddings.
+        """
+        context = ""
+        # 1. Always include Market Insights for grounding
+        if os.path.exists(self.insights_file):
+            with open(self.insights_file, "r") as f:
+                context += "=== MiroFish Market Grounding ===\n"
+                context += f.read() + "\n"
+
+        # 2. Search for keyword-specific wiki entries
+        files = glob.glob(os.path.join(self.wiki_dir, "*.md"))
+        
+        for file in files:
+            if "MARKET_INSIGHTS" in file or "INDEX" in file:
+                continue
+            with open(file, "r") as f:
+                content = f.read()
+                if any(kw.lower() in content.lower() for kw in keywords):
+                    context += f"\n--- From {os.path.basename(file)} ---\n"
+                    context += content[:1500] + "...\n" # Limit size
+                    
+        return context if context else "No historical context found for these topics."
+
+    def generate_skill(self, skill_name: str, python_code: str, description: str):
+        """
+        Saves a redundant action as a reusable Python script.
+        """
+        filename = f"{skill_name}.py"
+        filepath = os.path.join(self.skills_dir, filename)
+        
+        with open(filepath, "w") as f:
+            f.write(f'"""\nSkill: {skill_name}\nDescription: {description}\n"""\n\n')
+            f.write(python_code)
+            
+        self.save_wiki_entry("Skills Index", f"Generated new skill: `{skill_name}` - {description}")
+        return filepath
+
+    def list_available_skills(self) -> str:
+        """
+        Returns a formatted string of available skills for the LLM prompt.
+        """
+        skills = glob.glob(os.path.join(self.skills_dir, "*.py"))
+        if not skills:
+            return "No custom skills generated yet."
+            
+        res = "Available Python Skills (can be imported locally):\n"
+        for s in skills:
+            res += f"- {os.path.basename(s)}\n"
+        return res
+
+
+# File: agent/llm_router.py
+import os
+import litellm
+
+class HermesLLM:
+    """
+    Generic LLM Router for Hermes. 
+    Powered by LiteLLM to support any provider (OpenRouter, OpenAI, Anthropic, Local, etc.)
+    """
+    def __init__(self, model_name=None, api_base=None, api_key=None):
+        # 1. Prioritize passed arguments, then fall back to .env
+        self.model = model_name or os.getenv("MODEL_NAME", "openrouter/anthropic/claude-3.5-sonnet")
+        self.api_base = api_base or os.getenv("LLM_API_BASE")
+        self.api_key = api_key or os.getenv("LLM_API_KEY") # Optional: LiteLLM usually finds provider-specific keys (e.g. OPENROUTER_API_KEY)
+
+    def generate_strategy_code(self, prompt: str, context: str, skills: str) -> str:
+        """
+        Queries the LLM to generate Python code for a strategy.
+        """
+        system_prompt = f"""
+        You are Hermes, an expert algorithmic trading AI.
+        Your goal is to write a Python trading strategy using the `vectorbt` library and OpenAlgo SDK format.
+        
+        SAFE SKILLS CHEAT SHEET (USE THESE INSTEAD OF DIRECT VBT):
+        - SMA: `get_ma(df['close'], window=20)`
+        - RSI: `get_rsi(df['close'], window=14)`
+        - Bollinger Bands: `bb = get_bbands(df['close'], window=20, std=2.0)` -> then use `bb.upper`, `bb.lower`, `bb.middle`
+        - MACD: `m = get_macd(df['close'], fast=12, slow=26, signal=9)` -> then use `m.macd`, `m.signal`
+        - ATR: `get_atr(df['high'], df['low'], df['close'], window=14)`
+        - ADX: `get_adx(df['high'], df['low'], df['close'], window=14)`
+        - Generic: `run_indicator('RSI', df['close'], window=14)` -> Recommended for others
+        
+        AVAILABLE SKILLS & CONTEXT:
+        {skills}
+        {context}
+
+        RULES:
+        1. An `evaluate(df, params)` function that returns `entries`, `exits`, `short_entries`, `short_exits`.
+        2. MANDATORY: Review the "AVAILABLE SKILLS & CONTEXT" section above. DO NOT repeat any strategy concept that has already been documented as a SUCCESS or FAILURE. Use this context to evolve your logic.
+        3. You MUST include a one-line comment at the very top of the function: `# Strategy: [One sentence description]`.
+        4. All constants MUST be pulled from the `params` dictionary.
+        5. YOU MUST NOT OVER-FILTER. If a strategy has zero trades, it is a failure. Avoid using more than 2-3 simultaneous conditions for entry.
+        6. ENSURE VARIETY. If your previous attempt failed, DO NOT repeat the same concept. Try a different approach (e.g. if Trend-Following failed, try Mean-Reversion or Volatility-Breakout).
+        7. At the end of the file, provide a dictionary named `PARAM_RANGES`.
+        
+        Example Format:
+        ```python
+        def evaluate(df, params):
+            rsi_window = params.get('rsi_window', 14)
+            rsi = run_indicator('RSI', df['close'], window=rsi_window)
+            entries = rsi < params.get('rsi_lower', 30)
+            exits = rsi > params.get('rsi_upper', 70)
+            return entries, exits, None, None
+
+        PARAM_RANGES = {{
+            "rsi_window": range(10, 30, 2),
+            "rsi_lower": range(20, 40, 5),
+            "rsi_upper": range(60, 80, 5)
+        }}
+        ```
+        
+        Do not wrap in markdown blocks, just return the raw python string.
+        """
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        print(f"Routing request to {self.model}...")
+        
+        try:
+            return self._call_llm(messages, self.model, self.api_base, self.api_key)
+        except Exception as e:
+            print(f"Primary LLM Error: {e}")
+            
+            # Check for Local Fallback
+            if os.getenv("ENABLE_LOCAL_FALLBACK", "false").lower() == "true":
+                fallback_model = os.getenv("LOCAL_MODEL_NAME", "ollama/llama3")
+                fallback_base = os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1")
+                print(f"🔄 Attempting Local Fallback to {fallback_model}...")
+                try:
+                    return self._call_llm(messages, fallback_model, fallback_base, "no-key")
+                except Exception as fe:
+                    print(f"Fallback Error: {fe}")
+            
+            return ""
+
+    def _call_llm(self, messages, model, api_base, api_key) -> str:
+        """Helper to perform the actual litellm call and cleaning."""
+        call_kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.2
+        }
+        if api_base:
+            call_kwargs["api_base"] = api_base
+        if api_key:
+            call_kwargs["api_key"] = api_key
+            
+        response = litellm.completion(**call_kwargs)
+        code = response.choices[0].message.content
+        
+        # Clean up potential markdown formatting
+        if "```python" in code:
+            code = code.split("```python")[1].split("```")[0]
+        elif "```" in code:
+            code = code.split("```")[1].split("```")[0]
+            
+        return code.strip()
+
+
+# File: agent/registry.py
+import sqlite3
+import json
+import os
+from datetime import datetime
+
+class HermesRegistry:
+    """
+    SQLite-based Iteration Registry to track LLM strategy generation attempts.
+    Ensures that semi-successful strategies are saved even if the final goal isn't met.
+    """
+    def __init__(self, db_path="registry.sqlite"):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Create Iterations Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS strategy_iterations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                strategy_name TEXT,
+                iteration_number INTEGER,
+                timestamp TEXT,
+                code_snippet TEXT,
+                metrics_json TEXT,
+                failures_json TEXT,
+                goals_met BOOLEAN,
+                robustness_score REAL DEFAULT 0
+            )
+        ''')
+        
+        # Create Skills Table (For the Dynamic Skill Generation feature)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS generated_skills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT UNIQUE,
+                description TEXT,
+                file_path TEXT,
+                timestamp TEXT
+            )
+        ''')
+        
+        # Migration: Add robustness_score if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE strategy_iterations ADD COLUMN robustness_score REAL DEFAULT 0")
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+            
+        conn.commit()
+        conn.close()
+
+    def log_iteration(self, session_id: str, strategy_name: str, iteration_number: int, 
+                      code_snippet: str, metrics: dict, failures: list, goals_met: bool, robustness_score: float = 0):
+        """
+        Logs a single backtest run iteration to the database.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO strategy_iterations 
+            (session_id, strategy_name, iteration_number, timestamp, code_snippet, metrics_json, failures_json, goals_met, robustness_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            session_id,
+            strategy_name,
+            iteration_number,
+            datetime.now().isoformat(),
+            code_snippet,
+            json.dumps(metrics),
+            json.dumps(failures),
+            goals_met,
+            robustness_score
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+    def get_best_iteration(self, session_id: str):
+        """
+        Retrieves the iteration with the highest ROI for a given session.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Using JSON_EXTRACT requires sqlite compiled with json1 extension. 
+        # For simplicity without assuming sqlite features, we fetch all and sort in python.
+        cursor.execute("SELECT id, iteration_number, metrics_json, code_snippet, goals_met, robustness_score FROM strategy_iterations WHERE session_id = ?", (session_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return None
+            
+        best_row = None
+        best_roi = -float('inf')
+        
+        for row in rows:
+            metrics = json.loads(row[2])
+            roi = metrics.get("Total_Return_Pct", -999)
+            if roi > best_roi:
+                best_roi = roi
+                best_row = {
+                    "id": row[0],
+                    "iteration": row[1],
+                    "metrics": metrics,
+                    "code": row[3],
+                    "goals_met": bool(row[4]),
+                    "robustness_score": row[5]
+                }
+                
+        return best_row
+
+    def get_session_history(self, session_id: str):
+        """
+        Retrieves all iterations for a given session.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT iteration_number, metrics_json, failures_json, goals_met, strategy_name 
+            FROM strategy_iterations 
+            WHERE session_id = ? 
+            ORDER BY iteration_number ASC
+        """, (session_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        history = []
+        for row in rows:
+            history.append({
+                "iteration": row[0],
+                "metrics": json.loads(row[1]),
+                "failures": json.loads(row[2]),
+                "goals_met": bool(row[3]),
+                "concept": row[4]
+            })
+        return history
+
+
+# File: agent/__init__.py
+
+
+# File: agent/optimizer.py
+import itertools
+import pandas as pd
+import numpy as np
+
+class HermesOptimizer:
+    """
+    Performs local parameter optimization to reduce LLM hits.
+    Takes generated code, identifies PARAM_RANGES, and finds the best combination.
+    """
+    def __init__(self, backtester):
+        self.backtester = backtester
+
+    def optimize(self, df: pd.DataFrame, evaluate_func, param_ranges: dict, target_config: dict):
+        """
+        Runs a grid search over param_ranges to find the best metrics.
+        """
+        if not param_ranges:
+            # Nothing to optimize
+            return {}, {}
+
+        # Generate all combinations of parameters
+        keys = list(param_ranges.keys())
+        # Convert range/list to list if necessary
+        values = [list(v) if isinstance(v, (range, list)) else [v] for v in param_ranges.values()]
+        
+        combinations = list(itertools.product(*values))
+        
+        best_metrics = None
+        best_params = None
+        best_score = -float('inf') # We'll use ROI as the score for now
+        
+        print(f"Starting local optimization over {len(combinations)} combinations...")
+        
+        # Limit to 100 combinations to keep it fast
+        if len(combinations) > 100:
+            import random
+            combinations = random.sample(combinations, 100)
+            print(f"Limited search to 100 random combinations.")
+
+        for combo in combinations:
+            params = dict(zip(keys, combo))
+            try:
+                entries, exits, short_entries, short_exits = evaluate_func(df, params)
+                metrics, _ = self.backtester.evaluate_signals(
+                    df=df, 
+                    entries=entries, 
+                    exits=exits, 
+                    short_entries=short_entries, 
+                    short_exits=short_exits
+                )
+                
+                # Simple scoring: ROI - MaxDrawdown/2 (Adjust as needed)
+                score = metrics.get("Total_Return_Pct", 0) - (metrics.get("Max_Drawdown_Pct", 0) / 2.0)
+                
+                # Check if it meets the goals
+                goals_met, _ = self.backtester.check_goals(metrics, target_config)
+                
+                if goals_met and score > best_score:
+                    best_score = score
+                    best_metrics = metrics
+                    best_params = params
+                    # If we met the goals and it's better than before, we could potentially stop early,
+                    # but let's find the 'best' within the sample.
+            except Exception as e:
+                # print(f"Optimization trial failed: {e}")
+                continue
+                
+        return best_metrics, best_params
+
+
+# File: agent/templates/base_straddle.py
+"""
+Template: Base Straddle Options Strategy
+Description: Boilerplate structure for evaluating entries/exits for a straddle.
+"""
+import pandas as pd
+import numpy as np
+
+def evaluate(df: pd.DataFrame, params: dict):
+    """
+    Evaluates entry and exit conditions for the strategy.
+    
+    Args:
+        df: DataFrame containing 'open', 'high', 'low', 'close', 'volume'
+        params: Dictionary of parameters (e.g., {'entry_time': '09:20', 'sl_pct': 2.0})
+        
+    Returns:
+        entries (pd.Series): Boolean series for long entries
+        exits (pd.Series): Boolean series for long exits
+        short_entries (pd.Series): Boolean series for short entries
+        short_exits (pd.Series): Boolean series for short exits
+    """
+    entries = pd.Series(False, index=df.index)
+    exits = pd.Series(False, index=df.index)
+    short_entries = pd.Series(False, index=df.index)
+    short_exits = pd.Series(False, index=df.index)
+    
+    # ---------------------------------------------------------
+    # TODO: Implement custom indicator logic here
+    # ---------------------------------------------------------
+    
+    # Example: Short Straddle Entry at specific time
+    # if 'entry_time' in params:
+    #    short_entries = (df.index.time == pd.to_datetime(params['entry_time']).time())
+    
+    # Example: Stop Loss Exit
+    # ... logic here
+    
+    return entries, exits, short_entries, short_exits
+
+
+# File: skills/vbt_utils.py
+import vectorbt as vbt
+import pandas as pd
+
+def get_ma(close, window):
+    """Safe wrapper for Moving Average using Pandas"""
+    return close.rolling(window=window).mean()
+
+def get_rsi(close, window):
+    """Safe wrapper for RSI using Pandas (Wilder's Smoothing)"""
+    delta = close.diff()
+    gain = (delta.where(delta > 0, 0))
+    loss = (-delta.where(delta < 0, 0))
+    
+    # Wilder's Smoothing: alpha = 1/window
+    avg_gain = gain.ewm(alpha=1/window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/window, adjust=False).mean()
+    
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+def get_bbands(close, window, std):
+    """Safe wrapper for Bollinger Bands using Pandas (bypasses vbt bug)"""
+    ma = close.rolling(window=window).mean()
+    sd = close.rolling(window=window).std()
+    upper = ma + (sd * std)
+    lower = ma - (sd * std)
+    # Return an object that mimics vbt.BBANDS structure
+    class BB: pass
+    b = BB()
+    b.upper = upper
+    b.lower = lower
+    b.ma = ma
+    b.middle = ma # Vectorbt uses 'middle' for the moving average
+    return b
+
+def get_macd(close, fast, slow, signal):
+    """Safe wrapper for MACD using Pandas (bypasses vbt bug)"""
+    exp1 = close.ewm(span=fast, adjust=False).mean()
+    exp2 = close.ewm(span=slow, adjust=False).mean()
+    macd_line = exp1 - exp2
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    # Return an object that mimics vbt.MACD structure
+    class M: pass
+    m = M()
+    m.macd = macd_line
+    m.signal = signal_line
+    return m
+
+def get_atr(high, low, close, window):
+    """Safe wrapper for ATR using Pandas"""
+    tr1 = high - low
+    tr2 = (high - close.shift()).abs()
+    tr3 = (low - close.shift()).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=window).mean()
+
+def get_adx(high, low, close, window):
+    """Safe wrapper for ADX using Pandas"""
+    plus_dm = high.diff()
+    minus_dm = low.diff()
+    plus_dm[plus_dm < 0] = 0
+    minus_dm[minus_dm > 0] = 0
+    minus_dm = minus_dm.abs()
+    
+    tr = get_atr(high, low, close, window) # Use ATR for normalization
+    plus_di = 100 * (plus_dm.rolling(window=window).mean() / tr)
+    minus_di = 100 * (minus_dm.rolling(window=window).mean() / tr)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    return dx.rolling(window=window).mean()
+
+def run_indicator(name, close, **params):
+    """
+    Generic entry point for all indicators.
+    Tries to use a safe Pandas override if available, otherwise falls back to vectorbt.
+    """
+    safe_map = {
+        "MA": get_ma,
+        "RSI": get_rsi,
+        "BBANDS": get_bbands,
+        "MACD": get_macd,
+        "ATR": get_atr,
+        "ADX": get_adx
+    }
+    
+    name_upper = name.upper()
+    if name_upper in safe_map:
+        # ATR and ADX need High/Low/Close
+        if name_upper in ["ATR", "ADX"]:
+            # Try to get high/low from params or assume they are in the parent scope/df
+            # For simplicity in this wrapper, we assume params contains them if needed
+            return safe_map[name_upper](**params)
+        return safe_map[name_upper](close, **params)
+    
+    # Fallback to direct vectorbt with keyword safety
+    try:
+        # Map some common names if they differ from VBT classes
+        name_map = {"SMA": "MA", "EMA": "MA"}
+        vbt_name = name_map.get(name_upper, name_upper)
+        
+        indicator_cls = getattr(vbt, vbt_name)
+        return indicator_cls.run(close=close, **params)
+    except Exception as e:
+        # If it fails, return a helpful error for the LLM to fix
+        raise RuntimeError(f"Indicator '{name}' failed in environment: {str(e)}")
+
+
+# File: backtester/swing_backtester.py
+import pandas as pd
+import numpy as np
+import sys
+import os
+
+# Add the project root to the path if running this file directly
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from hermes_strategies.trend_momentum import TrendMomentumStrategy
+from hermes_strategies.mean_reversion import MeanReversionStrategy
+
+class SimpleBacktester:
+    """
+    A simple event-driven backtester for strategy classes that evaluate on sliding windows.
+    This simulates daily screening and tracks open positions.
+    """
+    def __init__(self, data: pd.DataFrame, strategy, initial_capital=100000):
+        """
+        data: pd.DataFrame with ['Open', 'High', 'Low', 'Close']
+        strategy: An instance of a strategy class with an `analyze()` method
+        """
+        self.data = data
+        self.strategy = strategy
+        self.initial_capital = initial_capital
+        self.capital = initial_capital
+        self.positions = [] # Active trades
+        self.trade_history = []
+        self.lookback_window = 50 # Ensure we feed enough data to strategy
+        
+    def run(self):
+        print(f"Starting backtest with {self.initial_capital} capital...")
+        
+        # Iterate over historical data day by day
+        for i in range(self.lookback_window, len(self.data)):
+            current_date = self.data.index[i]
+            today_data = self.data.iloc[i]
+            
+            # 1. Manage existing positions (check if SL or Target hit today)
+            for pos in self.positions[:]: # Iterate copy to allow removal
+                # For simplicity, we assume we check against High/Low of the day
+                if pos['direction'] == 'long':
+                    if today_data['Low'] <= pos['sl']:
+                        # Stopped out
+                        self._close_position(pos, pos['sl'], current_date, "Stop Loss")
+                    elif today_data['High'] >= pos['target']:
+                        # Target hit
+                        self._close_position(pos, pos['target'], current_date, "Target Hit")
+                elif pos['direction'] == 'short':
+                    if today_data['High'] >= pos['sl']:
+                        self._close_position(pos, pos['sl'], current_date, "Stop Loss")
+                    elif today_data['Low'] <= pos['target']:
+                        self._close_position(pos, pos['target'], current_date, "Target Hit")
+            
+            # 2. Look for new signals
+            # Feed the trailing window to the strategy
+            window_data = self.data.iloc[i - self.lookback_window : i + 1]
+            # Strategies expect a dict with 'close' prices
+            feed_dict = {'close': window_data['Close'].values}
+            
+            signal = self.strategy.analyze(feed_dict)
+            
+            # If signal exists and we don't already have an open position
+            if signal and len(self.positions) == 0:
+                self._open_position(signal, current_date)
+                
+        # Close any remaining positions at the end
+        for pos in self.positions[:]:
+            last_price = self.data.iloc[-1]['Close']
+            self._close_position(pos, last_price, self.data.index[-1], "End of Backtest")
+            
+        self.print_summary()
+
+    def _open_position(self, signal, date):
+        # Calculate position size (e.g., risk 5% of capital)
+        # Simplified: Invest 10% of total capital per trade
+        trade_size = self.capital * 0.10
+        qty = trade_size / signal['entry']
+        
+        position = {
+            'entry_date': date,
+            'entry_price': signal['entry'],
+            'sl': signal['sl'],
+            'target': signal['target'],
+            'direction': signal['direction'],
+            'qty': qty,
+            'invested': trade_size
+        }
+        self.positions.append(position)
+        print(f"[{date.date()}] OPEN {signal['direction'].upper()} at {signal['entry']:.2f} | Target: {signal['target']:.2f} | SL: {signal['sl']:.2f}")
+
+    def _close_position(self, pos, exit_price, date, reason):
+        if pos['direction'] == 'long':
+            pnl = (exit_price - pos['entry_price']) * pos['qty']
+        else:
+            pnl = (pos['entry_price'] - exit_price) * pos['qty']
+            
+        ret_pct = pnl / pos['invested'] * 100
+        self.capital += pnl
+        
+        print(f"[{date.date()}] CLOSE {pos['direction'].upper()} at {exit_price:.2f} ({reason}) | PnL: {pnl:.2f} ({ret_pct:.2f}%)")
+        
+        self.trade_history.append({
+            'entry_date': pos['entry_date'],
+            'exit_date': date,
+            'direction': pos['direction'],
+            'entry_price': pos['entry_price'],
+            'exit_price': exit_price,
+            'pnl': pnl,
+            'ret_pct': ret_pct,
+            'reason': reason
+        })
+        self.positions.remove(pos)
+
+    def print_summary(self):
+        print("\n--- BACKTEST SUMMARY ---")
+        print(f"Final Capital: {self.capital:.2f}")
+        print(f"Total Return: {((self.capital - self.initial_capital) / self.initial_capital) * 100:.2f}%")
+        
+        if not self.trade_history:
+            print("No trades executed.")
+            return
+            
+        df = pd.DataFrame(self.trade_history)
+        win_rate = (len(df[df['pnl'] > 0]) / len(df)) * 100
+        print(f"Total Trades: {len(df)}")
+        print(f"Win Rate: {win_rate:.2f}%")
+        print(f"Average PnL per trade: {df['pnl'].mean():.2f}")
+        print(f"Max Drawdown: N/A (Simplified backtester)")
+
+if __name__ == "__main__":
+    # Example usage using vectorbt to fetch data
+    try:
+        import vectorbt as vbt
+        print("Fetching historical data for AAPL...")
+        # Get 2 years of daily data
+        data = vbt.YFData.download("AAPL", period="2y").get()
+        
+        print("\n=== Testing Trend Momentum Strategy ===")
+        strat = TrendMomentumStrategy()
+        bt = SimpleBacktester(data, strat)
+        bt.run()
+        
+        print("\n=== Testing Mean Reversion Strategy ===")
+        strat2 = MeanReversionStrategy()
+        bt2 = SimpleBacktester(data, strat2)
+        bt2.run()
+        
+    except ImportError:
+        print("Please install vectorbt to fetch data: pip install vectorbt")
+
+
+# File: backtester/__init__.py
+
+
+# File: backtester/engine.py
+import vectorbt as vbt
+import pandas as pd
+import numpy as np
+
+class HermesBacktester:
+    """
+    High-speed vectorbt-based backtesting engine tailored for Intraday and FnO strategies.
+    """
+    def __init__(self, initial_capital=100000.0, fees=0.001, slippage=0.001):
+        self.initial_capital = initial_capital
+        # Standardize fees/slippage for realistic FnO testing
+        self.fees = fees
+        self.slippage = slippage
+
+    def evaluate_signals(self, df: pd.DataFrame, entries: pd.Series, exits: pd.Series, 
+                         short_entries: pd.Series = None, short_exits: pd.Series = None,
+                         freq: str = "1m", **kwargs):
+        """
+        Takes raw entry/exit boolean signals and processes them through vectorbt.
+        Returns a dictionary of core performance metrics.
+        """
+        # print(f"DEBUG: evaluate_signals called with {len(locals())} arguments.")
+        # Ensure we are using the close price for signal execution
+        price = df['close']
+        
+        # Count signals for debugging
+        entry_count = entries.sum() if entries is not None else 0
+        print(f"DEBUG: evaluate_signals received {entry_count} entry signals.")
+
+        # Handle simple Long-only strategies if shorts aren't provided
+        if short_entries is None:
+            short_entries = pd.Series(False, index=df.index)
+        if short_exits is None:
+            short_exits = pd.Series(False, index=df.index)
+
+        # Run vectorbt Portfolio simulation
+        portfolio = vbt.Portfolio.from_signals(
+            close=price,
+            entries=entries,
+            exits=exits,
+            short_entries=short_entries,
+            short_exits=short_exits,
+            init_cash=self.initial_capital,
+            fees=self.fees,
+            slippage=self.slippage,
+            freq=freq
+        )
+
+        # Extract Metrics (Ensuring scalar values for stability)
+        def to_scalar(val):
+            if hasattr(val, 'iloc'):
+                return float(val.iloc[0]) if len(val) > 0 else 0.0
+            return float(val) if val is not None else 0.0
+
+        metrics = {
+            "Total_Return_Pct": to_scalar(portfolio.total_return()) * 100,
+            "Max_Drawdown_Pct": to_scalar(portfolio.max_drawdown()) * 100,
+            "Win_Rate_Pct": to_scalar(portfolio.trades.win_rate()) * 100,
+            "Sharpe_Ratio": to_scalar(portfolio.sharpe_ratio()),
+            "Total_Trades": int(to_scalar(len(portfolio.trades))),
+            "Profit_Factor": to_scalar(portfolio.trades.profit_factor())
+        }
+        
+        # Replace NaN/Inf with 0 for cleaner LLM processing
+        for k, v in metrics.items():
+            if pd.isna(v) or np.isinf(v):
+                metrics[k] = 0.0
+
+        return metrics, portfolio
+
+    def check_goals(self, metrics: dict, config: dict) -> tuple:
+        """
+        Evaluates the backtest metrics against the user's custom strategy_config.yaml goals.
+        """
+        goals_met = True
+        failures = []
+        
+        # Check ROI
+        if "target_roi" in config:
+            if metrics["Total_Return_Pct"] < config["target_roi"]:
+                goals_met = False
+                failures.append(f"ROI ({metrics['Total_Return_Pct']:.2f}%) below target ({config['target_roi']}%)")
+                
+        # Check Max Drawdown
+        if "max_drawdown" in config:
+            # Note: Drawdown is usually negative, so we check absolute value or use <= if negative
+            dd = abs(metrics["Max_Drawdown_Pct"])
+            if dd > config["max_drawdown"]:
+                goals_met = False
+                failures.append(f"Drawdown ({dd:.2f}%) exceeds max ({config['max_drawdown']}%)")
+                
+        # Check Win Rate
+        if "min_win_rate" in config:
+            if metrics["Win_Rate_Pct"] < config["min_win_rate"]:
+                goals_met = False
+                failures.append(f"Win Rate ({metrics['Win_Rate_Pct']:.2f}%) below target ({config['min_win_rate']}%)")
+
+        return goals_met, failures
+
+    def generate_regime_data(self, df: pd.DataFrame, regime: str = "volatile"):
+        """
+        Creates synthetic 'OASIS' regime data to stress test strategies locally.
+        """
+        synth = df.copy()
+        np.random.seed(42)
+        
+        if regime == "volatile":
+            # Increase noise/volatility by 3x
+            noise = np.random.normal(0, df['close'].std() * 0.05, len(df))
+            synth['close'] = synth['close'] + noise
+        elif regime == "crash":
+            # Inject a 10% flash crash in the middle
+            mid = len(df) // 2
+            synth.iloc[mid:mid+10, synth.columns.get_loc('close')] *= 0.90
+        elif regime == "trending":
+            # Add a strong artificial trend
+            trend = np.linspace(0, df['close'].mean() * 0.2, len(df))
+            synth['close'] = synth['close'] + trend
+            
+        return synth
+
+    def run_oasis_stress_test(self, df: pd.DataFrame, eval_func, params: dict):
+        """
+        Runs the strategy through multiple synthetic regimes to check robustness.
+        Returns a 'Robustness Score' (0-100).
+        """
+        regimes = ["volatile", "crash", "trending"]
+        pass_count = 0
+        
+        for r in regimes:
+            synth_df = self.generate_regime_data(df, regime=r)
+            try:
+                entries, exits, short_entries, short_exits = eval_func(synth_df, params)
+                metrics, _ = self.evaluate_signals(
+                    df=synth_df, 
+                    entries=entries, 
+                    exits=exits, 
+                    short_entries=short_entries, 
+                    short_exits=short_exits
+                )
+                
+                # If it doesn't blow up (ROI > -50%), we count it as a partial pass
+                if metrics.get("Total_Return_Pct", -100) > -50:
+                    pass_count += 1
+            except:
+                continue
+                
+        return (pass_count / len(regimes)) * 100
+
+
